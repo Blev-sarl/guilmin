@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 class PreferencesService {
@@ -6,6 +8,24 @@ class PreferencesService {
   static const _databaseKey = 'odoo_db';
   static const _emailKey = 'odoo_email';
   static const _passwordKey = 'odoo_password';
+
+  String _hiddenOperationTypesKey(String url) =>
+      'hidden_operation_types_${base64Url.encode(utf8.encode(url))}';
+
+  Future<Set<int>> loadHiddenOperationTypeIds(String url) async {
+    final preferences = await SharedPreferences.getInstance();
+    return (preferences.getStringList(_hiddenOperationTypesKey(url)) ??
+            <String>[])
+        .map(int.tryParse)
+        .whereType<int>()
+        .toSet();
+  }
+
+  Future<void> saveHiddenOperationTypeIds(String url, Set<int> ids) async {
+    final preferences = await SharedPreferences.getInstance();
+    final values = ids.map((id) => id.toString()).toList()..sort();
+    await preferences.setStringList(_hiddenOperationTypesKey(url), values);
+  }
 
   Future<Map<String, String>> loadLogin() async {
     final preferences = await SharedPreferences.getInstance();

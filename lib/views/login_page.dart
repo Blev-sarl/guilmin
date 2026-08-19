@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../controllers/login_controller.dart';
 import 'dashboard_page.dart';
+import 'widgets/app_version_label.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key, required this.controller});
@@ -107,6 +108,8 @@ class _LoginPageState extends State<LoginPage> {
                           fontWeight: FontWeight.bold,
                         ),
                       ),
+                      const SizedBox(height: 4),
+                      const AppVersionLabel(compact: true),
                       const SizedBox(height: 24),
                       _field(_url, 'URL Odoo', Icons.link),
                       const SizedBox(height: 14),

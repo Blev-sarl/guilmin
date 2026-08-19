@@ -1,10 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'controllers/login_controller.dart';
 import 'services/odoo_client.dart';
 import 'services/preferences_service.dart';
 import 'views/login_page.dart';
+import 'views/update_dialog.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await SystemChrome.setPreferredOrientations(<DeviceOrientation>[
+    DeviceOrientation.portraitUp,
+    DeviceOrientation.portraitDown,
+  ]);
   final client = OdooClient();
   runApp(
     OdooPickingApp(
@@ -104,7 +111,7 @@ class OdooPickingApp extends StatelessWidget {
         dividerColor: border,
         progressIndicatorTheme: const ProgressIndicatorThemeData(color: green),
       ),
-      home: LoginPage(controller: loginController),
+      home: UpdateChecker(child: LoginPage(controller: loginController)),
     );
   }
 }

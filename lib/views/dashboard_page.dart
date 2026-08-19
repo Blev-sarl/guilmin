@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import '../controllers/login_controller.dart';
 import 'login_page.dart';
 import 'reception_types_page.dart';
+import 'update_dialog.dart';
+import 'widgets/app_version_label.dart';
 
 class DashboardPage extends StatelessWidget {
   const DashboardPage({super.key, required this.controller});
@@ -25,6 +27,11 @@ class DashboardPage extends StatelessWidget {
         ),
         actions: <Widget>[
           IconButton(
+            tooltip: 'Vérifier les mises à jour',
+            onPressed: () => showUpdateDialog(context),
+            icon: const Icon(Icons.system_update_outlined),
+          ),
+          IconButton(
             tooltip: 'Déconnexion',
             onPressed: () {
               controller.logout();
@@ -45,7 +52,10 @@ class DashboardPage extends StatelessWidget {
             'Bonjour ${user.name.isEmpty ? user.login : user.name}',
             style: Theme.of(context).textTheme.headlineSmall,
           ),
-          Text(controller.url!, style: Theme.of(context).textTheme.bodySmall),
+          const Align(
+            alignment: Alignment.centerLeft,
+            child: AppVersionLabel(),
+          ),
           const SizedBox(height: 24),
           Card(
             child: ListTile(

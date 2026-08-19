@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.0+1
+version: 1.0.3
 
 environment:
   sdk: ^3.11.0
@@ -37,6 +37,9 @@ dependencies:
   http: ^1.5.0
   shared_preferences: ^2.5.3
   mobile_scanner: ^7.4.0
+  package_info_plus: ^10.2.1
+  path_provider: ^2.1.6
+  open_filex: ^4.7.0
 
 dev_dependencies:
   flutter_test:
@@ -48,6 +51,7 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -62,6 +66,15 @@ flutter:
 
   assets:
     - assets/images/guilmin_logo.png
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: assets/images/guilmin_app_icon.png
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: assets/images/guilmin_app_icon.png
+  remove_alpha_ios: true
+  background_color_ios: "#FFFFFF"
 
   # To add assets to your application, add an assets section, like this:
   # assets:
