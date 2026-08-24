@@ -17,7 +17,11 @@ class _UpdateCheckerState extends State<UpdateChecker> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      showUpdateDialog(context, silent: true);
+      // Laisser le premier écran se dessiner avant l'appel réseau GitHub.
+      // Cela évite de concurrencer le rendu initial sur les appareils lents.
+      Future<void>.delayed(const Duration(seconds: 2), () {
+        if (mounted) showUpdateDialog(context, silent: true);
+      });
     });
   }
 

@@ -8,6 +8,35 @@ class PreferencesService {
   static const _databaseKey = 'odoo_db';
   static const _emailKey = 'odoo_email';
   static const _passwordKey = 'odoo_password';
+  static const _printerKey = 'selected_printer';
+  static const _printerIpKey = 'zpl_printer_ip';
+  static const _printerPortKey = 'zpl_printer_port';
+  static const _zplTemplateKey = 'zpl_template';
+  static const _zplPriceKey = 'zpl_with_price';
+
+  Future<Map<String, dynamic>> loadZplPrinter() async {
+    final p = await SharedPreferences.getInstance();
+    return {'ip': p.getString(_printerIpKey) ?? '', 'port': p.getInt(_printerPortKey) ?? 9100, 'template': p.getString(_zplTemplateKey) ?? 'normal', 'withPrice': p.getBool(_zplPriceKey) ?? false};
+  }
+
+  Future<void> saveZplPrinter({required String ip, required int port, required String template, required bool withPrice}) async {
+    final p = await SharedPreferences.getInstance();
+    await Future.wait([p.setString(_printerIpKey, ip), p.setInt(_printerPortKey, port), p.setString(_zplTemplateKey, template), p.setBool(_zplPriceKey, withPrice)]);
+  }
+
+  Future<String?> loadPrinter() async {
+    final preferences = await SharedPreferences.getInstance();
+    return preferences.getString(_printerKey);
+  }
+
+  Future<void> savePrinter(String? printer) async {
+    final preferences = await SharedPreferences.getInstance();
+    if (printer == null || printer.isEmpty) {
+      await preferences.remove(_printerKey);
+    } else {
+      await preferences.setString(_printerKey, printer);
+    }
+  }
 
   String _hiddenOperationTypesKey(String url) =>
       'hidden_operation_types_${base64Url.encode(utf8.encode(url))}';

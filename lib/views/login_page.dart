@@ -96,12 +96,15 @@ class _LoginPageState extends State<LoginPage> {
                       Image.asset(
                         'assets/images/guilmin_logo.png',
                         height: 72,
+                        // Le logo est affiché à ~144 px de haut au maximum.
+                        // Limiter le décodage réduit le coût du premier frame.
+                        cacheWidth: 320,
                         fit: BoxFit.contain,
                         semanticLabel: 'Guilmin',
                       ),
                       const SizedBox(height: 12),
                       const Text(
-                        'Odoo Picking',
+                        'guilmin',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 22,

@@ -2,14 +2,64 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:printing/printing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../controllers/operation_detail_controller.dart';
 import '../models/operation_line.dart';
 import '../models/package_option.dart';
 import '../models/stock_operation.dart';
 import '../services/odoo_client.dart';
+import '../services/barcode_pdf_service.dart';
 import 'product_quantity_page.dart';
 import 'widgets/package_picker_dialog.dart';
+
+enum _PrintChoice {
+  operations(
+    'Imprimer les opérations de transfert',
+    'stock.action_report_picking',
+    Icons.assignment_outlined,
+    'operations_transfert',
+  ),
+  delivery(
+    'Imprimer le bon de livraison',
+    'stock.action_report_delivery',
+    Icons.local_shipping_outlined,
+    'bon_livraison',
+  ),
+  barcodes(
+    'Imprimer les code-barres',
+    'stock.action_report_picking',
+    Icons.qr_code_2,
+    'codes_barres',
+  ),
+  packages(
+    'Imprimer des colis',
+    'stock.action_report_picking',
+    Icons.inventory_2_outlined,
+    'colis',
+  );
+
+  const _PrintChoice(this.label, this.reportName, this.icon, this.filePrefix);
+  final String label;
+  final String reportName;
+  final IconData icon;
+  final String filePrefix;
+}
+
+enum _BarcodeLabelFormat {
+  dymo('Dymo', 'product.report_product_template_label_dymo'),
+  twoBySeven('2 x 7 avec le prix', 'product.report_product_template_label_2x7'),
+  fourBySeven('4 x 7 avec le prix', 'product.report_product_template_label_4x7'),
+  fourByTwelve('4 x 12', 'product.report_product_template_label_4x12'),
+  fourByTwelveNoPrice(
+    '4 x 12 sans le prix',
+    'product.report_product_template_label_4x12_noprice',
+  );
+
+  const _BarcodeLabelFormat(this.label, this.reportName);
+  final String label;
+  final String reportName;
+}
 
 class OperationDetailPage extends StatefulWidget {
   const OperationDetailPage({
@@ -25,7 +75,8 @@ class OperationDetailPage extends StatefulWidget {
   State<OperationDetailPage> createState() => _OperationDetailPageState();
 }
 
-class _OperationDetailPageState extends State<OperationDetailPage> {
+class _OperationDetailPageState extends State<OperationDetailPage>
+    with SingleTickerProviderStateMixin {
   late final OperationDetailController _controller;
   final MobileScannerController _cameraController = MobileScannerController(
     detectionSpeed: DetectionSpeed.noDuplicates,
@@ -33,13 +84,21 @@ class _OperationDetailPageState extends State<OperationDetailPage> {
   );
   final TextEditingController _manualScanController = TextEditingController();
   final FocusNode _manualScanFocusNode = FocusNode();
+  late final AnimationController _completionBlinkController;
   bool _cameraVisible = false;
   bool _manualScanVisible = false;
   bool _showTouchKeyboard = false;
   bool _scanBusy = false;
+  bool _printing = false;
   @override
   void initState() {
     super.initState();
+    _completionBlinkController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+      lowerBound: 0.55,
+      upperBound: 1,
+    )..repeat(reverse: true);
     _controller = OperationDetailController(
       widget.client,
       widget.url,
@@ -56,6 +115,7 @@ class _OperationDetailPageState extends State<OperationDetailPage> {
 
   @override
   void dispose() {
+    _completionBlinkController.dispose();
     _cameraController.dispose();
     _manualScanController.dispose();
     _manualScanFocusNode.dispose();
@@ -70,6 +130,11 @@ class _OperationDetailPageState extends State<OperationDetailPage> {
       appBar: AppBar(
         title: Text(widget.operation.reference),
         actions: <Widget>[
+          IconButton(
+            tooltip: 'Imprimer',
+            onPressed: _printing ? null : _showPrintMenu,
+            icon: const Icon(Icons.print_outlined),
+          ),
           IconButton(
             tooltip: 'Actualiser',
             onPressed: _controller.load,
@@ -115,6 +180,7 @@ class _OperationDetailPageState extends State<OperationDetailPage> {
             ),
           if (_cameraVisible) _buildInlineScanner(),
           if (_manualScanVisible) _buildManualScanner(),
+          if (_allProductsCompleted) _buildCompletionBanner(),
           if (widget.operation.origin.isNotEmpty)
             Container(
               width: double.infinity,
@@ -160,6 +226,205 @@ class _OperationDetailPageState extends State<OperationDetailPage> {
     );
   }
 
+  Future<void> _showPrintMenu() async {
+    final hasPackages = _controller.lines.any(
+      (line) => line.destinationPackage.trim().isNotEmpty,
+    );
+    final choice = await showModalBottomSheet<_PrintChoice>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            const ListTile(title: Text('Impression'), leading: Icon(Icons.print)),
+            for (final item in _PrintChoice.values)
+              ListTile(
+                enabled: item != _PrintChoice.packages || hasPackages,
+                leading: Icon(
+                  item.icon,
+                  color: item == _PrintChoice.packages && !hasPackages
+                      ? Theme.of(context).disabledColor
+                      : null,
+                ),
+                title: Text(item.label),
+                onTap: item == _PrintChoice.packages && !hasPackages
+                    ? null
+                    : () => Navigator.pop(context, item),
+              ),
+            const Divider(height: 1),
+            ListTile(
+              leading: const Icon(Icons.arrow_back),
+              title: const Text('Retour'),
+              onTap: () => Navigator.pop(context),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (choice == null || !mounted) return;
+    _BarcodeLabelFormat? barcodeFormat;
+    if (choice == _PrintChoice.barcodes) {
+      barcodeFormat = await _showBarcodeFormatDialog();
+      if (barcodeFormat == null || !mounted) return;
+    }
+    final selectedBarcodeFormat = barcodeFormat;
+    setState(() => _printing = true);
+    try {
+      final productIds = _controller.lines
+          .map((line) => line.productId)
+          .whereType<int>()
+          .toSet();
+      final packageIds = _controller.lines
+          .map((line) => line.destinationPackageId)
+          .whereType<int>()
+          .toSet()
+          .toList();
+      final barcodeTemplateIds = choice == _PrintChoice.barcodes
+          ? await widget.client.getProductTemplateIds(widget.url, productIds)
+          : const <int>[];
+      debugPrint('IDs modèles produits envoyés à Odoo : $barcodeTemplateIds');
+      if (choice == _PrintChoice.barcodes && barcodeTemplateIds.isEmpty) {
+        throw Exception('Aucun modèle produit trouvé pour les codes-barres');
+      }
+      if (choice == _PrintChoice.barcodes) {
+        final codes = await widget.client.getProductScanCodes(widget.url, productIds);
+        final labels = <BarcodePdfItem>[];
+        for (final line in _controller.lines) {
+          final productCodes = line.productId == null ? null : codes[line.productId];
+          if (productCodes == null || productCodes.isEmpty) continue;
+          final quantity = line.expectedQuantity.ceil().clamp(1, 999);
+          for (var index = 0; index < quantity; index++) {
+            labels.add(BarcodePdfItem(code: productCodes.first, name: line.productName));
+          }
+        }
+        if (labels.isEmpty) throw Exception('Aucun code-barres produit trouvé');
+        final fourColumns = selectedBarcodeFormat == _BarcodeLabelFormat.fourBySeven ||
+            selectedBarcodeFormat == _BarcodeLabelFormat.fourByTwelve ||
+            selectedBarcodeFormat == _BarcodeLabelFormat.fourByTwelveNoPrice;
+        final rows = selectedBarcodeFormat == _BarcodeLabelFormat.fourByTwelve ||
+                selectedBarcodeFormat == _BarcodeLabelFormat.fourByTwelveNoPrice
+            ? 12
+            : selectedBarcodeFormat == _BarcodeLabelFormat.dymo ? 1 : 7;
+        final bytes = await BarcodePdfService().build(
+          items: labels, columns: fourColumns ? 4 : 2, rows: rows,
+        );
+        await Printing.layoutPdf(
+          name: choice.label,
+          onLayout: (_) async => Uint8List.fromList(bytes),
+        );
+        return;
+      }
+      final labelAction = choice == _PrintChoice.barcodes
+          ? await widget.client.prepareProductLabelReport(
+              url: widget.url,
+              productIds: productIds.toList(growable: false),
+              layout: _odoo19Layout(selectedBarcodeFormat!),
+            )
+          : null;
+      final barcodeReportName = labelAction == null
+          ? barcodeFormat?.reportName
+          : (labelAction['report_name']?.toString() ??
+              selectedBarcodeFormat?.reportName);
+      final report = await widget.client.downloadReport(
+        url: widget.url,
+        reportName: choice == _PrintChoice.barcodes
+            ? (barcodeReportName ??
+                (throw Exception('Format de code-barres non sélectionné')))
+            : choice == _PrintChoice.packages
+            ? 'stock.action_report_package_barcode'
+            : choice.reportName,
+        recordIds: choice == _PrintChoice.barcodes
+            ? const <int>[]
+            : choice == _PrintChoice.packages
+            ? packageIds
+            : <int>[widget.operation.id],
+        fileName: '${choice.filePrefix}_${widget.operation.reference}',
+        data: labelAction != null && labelAction['data'] is Map
+            ? Map<String, dynamic>.from(labelAction['data'] as Map)
+            : null,
+      );
+      await Printing.layoutPdf(
+        name: choice.label,
+        onLayout: (_) => report.readAsBytes(),
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Impression impossible : $error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _printing = false);
+    }
+  }
+
+  String _odoo19Layout(_BarcodeLabelFormat format) => switch (format) {
+    _BarcodeLabelFormat.dymo => 'dymo',
+    _BarcodeLabelFormat.twoBySeven => '2x7xprice',
+    _BarcodeLabelFormat.fourBySeven => '4x7xprice',
+    _BarcodeLabelFormat.fourByTwelve => '4x12',
+    _BarcodeLabelFormat.fourByTwelveNoPrice => '4x12xprice',
+  };
+
+  Future<_BarcodeLabelFormat?> _showBarcodeFormatDialog() {
+    var selected = _BarcodeLabelFormat.twoBySeven;
+    return showDialog<_BarcodeLabelFormat>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Choisir le modèle d’étiquettes'),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                const Text(
+                  'Quantité à imprimer',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 6),
+                const Text('Quantités de l’opération'),
+                const SizedBox(height: 16),
+                const Text(
+                  'Format',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+                RadioGroup<_BarcodeLabelFormat>(
+                  groupValue: selected,
+                  onChanged: (value) {
+                    if (value != null) setDialogState(() => selected = value);
+                  },
+                  child: Column(
+                    children: _BarcodeLabelFormat.values
+                        .map(
+                          (format) => RadioListTile<_BarcodeLabelFormat>(
+                            contentPadding: EdgeInsets.zero,
+                            dense: true,
+                            title: Text(format.label),
+                            value: format,
+                          ),
+                        )
+                        .toList(growable: false),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Ignorer'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, selected),
+              child: const Text('Imprimer'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildBody() {
     if (_controller.loading) {
       return const Center(child: CircularProgressIndicator());
@@ -199,6 +464,44 @@ class _OperationDetailPageState extends State<OperationDetailPage> {
             onEdit: () => _editQuantity(line),
           );
         },
+      ),
+    );
+  }
+
+  bool get _allProductsCompleted =>
+      _controller.lines.isNotEmpty &&
+      _controller.lines.every(
+        (line) => line.doneQuantity >= line.expectedQuantity,
+      );
+
+  Widget _buildCompletionBanner() {
+    return AnimatedBuilder(
+      animation: _completionBlinkController,
+      builder: (context, child) => Opacity(
+        opacity: _completionBlinkController.value,
+        child: child,
+      ),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        color: Colors.green.shade700,
+        child: Row(
+          children: <Widget>[
+            const Icon(Icons.check_circle, color: Colors.white, size: 28),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Text(
+                'Tous les produits du transfert ont été scannés. '
+                'Validez pour confirmer le transfert.',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -393,7 +696,15 @@ class _OperationDetailPageState extends State<OperationDetailPage> {
     final value = _manualScanController.text.trim();
     if (value.isEmpty) return;
     await _processScannedValue(value);
-    if (mounted) _manualScanController.clear();
+    if (mounted) {
+      _manualScanController.clear();
+      _manualScanFocusNode.requestFocus();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _manualScanVisible) {
+          _manualScanFocusNode.requestFocus();
+        }
+      });
+    }
   }
 
   Future<void> _onCameraDetect(BarcodeCapture capture) async {

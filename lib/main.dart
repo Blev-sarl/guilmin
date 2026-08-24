@@ -41,7 +41,7 @@ class OdooPickingApp extends StatelessWidget {
       outline: border,
     );
     return MaterialApp(
-      title: 'Odoo Picking',
+      title: 'guilmin',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: scheme,

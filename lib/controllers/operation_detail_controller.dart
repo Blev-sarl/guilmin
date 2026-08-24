@@ -14,6 +14,7 @@ class OperationDetailController extends ChangeNotifier {
   bool saving = false;
   String? error;
   int? lastScannedLineId;
+  final Map<String, int> _scanCodeToProductId = <String, int>{};
 
   Future<void> load() async {
     loading = true;
@@ -21,6 +22,16 @@ class OperationDetailController extends ChangeNotifier {
     notifyListeners();
     try {
       lines = await client.getOperationLines(url, operationId);
+      _scanCodeToProductId.clear();
+      final productCodes = await client.getProductScanCodes(
+        url,
+        lines.where((line) => line.productId != null).map((line) => line.productId!),
+      );
+      for (final entry in productCodes.entries) {
+        for (final code in entry.value) {
+          _scanCodeToProductId[code.toLowerCase()] = entry.key;
+        }
+      }
     } catch (exception) {
       error = exception.toString().replaceFirst('Exception: ', '');
     } finally {
@@ -62,7 +73,9 @@ class OperationDetailController extends ChangeNotifier {
   }
 
   Future<OperationLine?> scan(String barcode) async {
-    final productId = await client.findProductByBarcode(url, barcode.trim());
+    final normalizedBarcode = barcode.trim();
+    final productId = _scanCodeToProductId[normalizedBarcode.toLowerCase()] ??
+        await client.findProductByBarcode(url, normalizedBarcode);
     if (productId == null) {
       throw Exception('Aucun produit trouvé pour ce code-barres');
     }

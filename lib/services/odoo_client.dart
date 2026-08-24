@@ -1,5 +1,8 @@
 import 'dart:convert';
+import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
 import '../models/reception_type.dart';
 import '../models/operation_line.dart';
 import '../models/package_option.dart';
@@ -9,6 +12,79 @@ import '../models/user.dart';
 class OdooClient {
   String? _cookie;
   String _baseUrl(String url) => url.trim().replaceFirst(RegExp(r'/+$'), '');
+
+  Future<File> downloadReport({
+    required String url,
+    required String reportName,
+    required List<int> recordIds,
+    required String fileName,
+    Map<String, dynamic>? data,
+  }) async {
+    if (recordIds.isEmpty && data == null) {
+      throw Exception('Aucune opération à imprimer');
+    }
+    final reportUri = Uri.parse(
+      '${_baseUrl(url)}/report/pdf/$reportName'
+      '${recordIds.isEmpty ? '' : '/${recordIds.join(',')}'}',
+    );
+    debugPrint('Téléchargement rapport Odoo: $reportUri');
+    final headers = <String, String>{
+      ...?_cookie == null ? null : <String, String>{'Cookie': _cookie!},
+    };
+    final response = data == null
+        ? await http.get(reportUri, headers: headers)
+        : await http.post(
+            reportUri,
+            headers: <String, String>{
+              ...headers,
+              'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: <String, String>{
+              'options': jsonEncode(data),
+              'context': jsonEncode(<String, dynamic>{
+                if (data['active_model'] != null)
+                  'active_model': data['active_model'],
+                if (data['active_ids'] != null)
+                  'active_ids': data['active_ids'],
+              }),
+            },
+          );
+    debugPrint(
+      'Réponse rapport Odoo: status=${response.statusCode}, '
+      'type=${response.headers['content-type']}, '
+      'location=${response.headers['location']}, '
+      'cookie=${_cookie != null}',
+    );
+    final bytes = response.bodyBytes;
+    final isPdf = bytes.length >= 4 &&
+        bytes[0] == 0x25 && bytes[1] == 0x50 &&
+        bytes[2] == 0x44 && bytes[3] == 0x46;
+    // Les rapports classiques gardent le comportement historique. La
+    // validation stricte est réservée au flux des étiquettes Odoo 19.
+    if (response.statusCode != 200 ||
+        (data != null && !isPdf) ||
+        (data == null && bytes.length < 4)) {
+      var message = 'Le rapport d’impression est indisponible';
+      if (response.statusCode == 401) {
+        message = 'Session Odoo expirée, veuillez vous reconnecter';
+      } else if (response.statusCode == 403) {
+        message = 'Accès au rapport refusé par Odoo';
+      } else if (response.statusCode == 404) {
+        message = 'Rapport code-barres introuvable dans Odoo';
+      } else if (response.body.toLowerCase().contains('login') ||
+          response.body.toLowerCase().contains('<html')) {
+        message = 'Odoo a renvoyé une page HTML au lieu du rapport PDF';
+      }
+      debugPrint(
+        'Détail erreur rapport Odoo: ${response.body.substring(0, response.body.length > 500 ? 500 : response.body.length)}',
+      );
+      throw Exception('$message (${response.statusCode})');
+    }
+    final directory = await getTemporaryDirectory();
+    final safeName = fileName.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
+    return File('${directory.path}/$safeName.pdf')
+        .writeAsBytes(bytes, flush: true);
+  }
 
   Future<OdooUser> authenticate({
     required String url,
@@ -173,6 +249,11 @@ class OdooClient {
         item['_destination_package'] = _relationName(
           detail['result_package_id'],
         );
+        final destinationPackage = detail['result_package_id'];
+        item['_destination_package_id'] = destinationPackage is List &&
+                destinationPackage.isNotEmpty
+            ? destinationPackage[0]
+            : null;
         item['_destination_container'] =
             (detail['result_package_dest_name'] ?? '').toString();
         expanded.add(item);
@@ -330,6 +411,116 @@ class OdooClient {
       errorMessage: 'Impossible de rechercher le code-barres',
     );
     return result.isEmpty ? null : (result.first['id'] as num).toInt();
+  }
+
+  Future<Map<int, List<String>>> getProductScanCodes(
+    String url,
+    Iterable<int> productIds,
+  ) async {
+    final ids = productIds.toSet().toList(growable: false);
+    if (ids.isEmpty) return <int, List<String>>{};
+    final result = await _call(
+      url: url,
+      model: 'product.product',
+      method: 'search_read',
+      kwargs: <String, dynamic>{
+        'domain': <Object>[
+          <Object>['id', 'in', ids],
+        ],
+        'fields': <String>['id', 'barcode', 'default_code'],
+      },
+      errorMessage: 'Impossible de charger les codes produits',
+    );
+    final codes = <int, List<String>>{};
+    for (final product in result) {
+      final id = (product['id'] as num).toInt();
+      codes[id] = <String>[
+        if (product['barcode'] is String &&
+            (product['barcode'] as String).trim().isNotEmpty)
+          (product['barcode'] as String).trim(),
+        if (product['default_code'] is String &&
+            (product['default_code'] as String).trim().isNotEmpty)
+          (product['default_code'] as String).trim(),
+      ];
+    }
+    return codes;
+  }
+
+  Future<List<int>> getProductTemplateIds(
+    String url,
+    Iterable<int> productIds,
+  ) async {
+    final ids = productIds.toSet().toList(growable: false);
+    if (ids.isEmpty) return <int>[];
+    final products = await _call(
+      url: url,
+      model: 'product.product',
+      method: 'search_read',
+      kwargs: <String, dynamic>{
+        'domain': <Object>[
+          <Object>['id', 'in', ids],
+        ],
+        'fields': <String>['product_tmpl_id'],
+      },
+      errorMessage: 'Impossible de charger les produits',
+    );
+    return products
+        .map((product) => product['product_tmpl_id'])
+        .where((relation) => relation is List && relation.isNotEmpty)
+        .map((relation) => (relation[0] as num).toInt())
+        .toSet()
+        .toList(growable: false);
+  }
+
+  Future<Map<String, dynamic>> prepareProductLabelReport({
+    required String url,
+    required List<int> productIds,
+    required String layout,
+  }) async {
+    if (productIds.isEmpty) {
+      throw Exception('Aucun produit à imprimer');
+    }
+    final wizardId = await _execute(
+      url: url,
+      model: 'product.label.layout',
+      method: 'create',
+      args: <Object>[
+        <String, Object>{
+          'product_ids': <Object>[<Object>[6, 0, productIds]],
+          'move_quantity': 'move',
+          'print_format': layout,
+        },
+      ],
+      kwargs: <String, dynamic>{
+        'context': <String, Object>{
+          'active_model': 'product.product',
+          'active_ids': productIds,
+          'active_id': productIds.first,
+        },
+      },
+      errorMessage: 'Impossible de préparer les étiquettes Odoo',
+    );
+    if (wizardId is! num) {
+      throw Exception('Assistant d’étiquettes Odoo invalide');
+    }
+    final action = await _execute(
+      url: url,
+      model: 'product.label.layout',
+      method: 'process',
+      args: <Object>[<int>[wizardId.toInt()]],
+      kwargs: <String, dynamic>{
+        'context': <String, Object>{
+          'active_model': 'product.product',
+          'active_ids': productIds,
+          'active_id': productIds.first,
+        },
+      },
+      errorMessage: 'Impossible de générer les étiquettes Odoo',
+    );
+    if (action is! Map) {
+      throw Exception('Odoo n’a pas retourné de rapport d’étiquettes');
+    }
+    return Map<String, dynamic>.from(action);
   }
 
   Future<void> putInPack(String url, int operationId) async {

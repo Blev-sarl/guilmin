@@ -4,6 +4,7 @@ import 'login_page.dart';
 import 'reception_types_page.dart';
 import 'update_dialog.dart';
 import 'widgets/app_version_label.dart';
+import 'print_settings_page.dart';
 
 class DashboardPage extends StatelessWidget {
   const DashboardPage({super.key, required this.controller});
@@ -21,11 +22,19 @@ class DashboardPage extends StatelessWidget {
           'assets/images/guilmin_logo.png',
           width: 145,
           height: 42,
+          cacheWidth: 320,
           fit: BoxFit.contain,
           alignment: Alignment.centerLeft,
           semanticLabel: 'Guilmin',
         ),
         actions: <Widget>[
+          IconButton(
+            tooltip: 'Paramètres d’impression',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const PrintSettingsPage()),
+            ),
+            icon: const Icon(Icons.print_outlined),
+          ),
           IconButton(
             tooltip: 'Vérifier les mises à jour',
             onPressed: () => showUpdateDialog(context),

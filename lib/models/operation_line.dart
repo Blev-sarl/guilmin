@@ -12,6 +12,7 @@ class OperationLine {
     required this.moveLineIds,
     required this.sourcePackage,
     required this.destinationPackage,
+    required this.destinationPackageId,
     required this.destinationContainer,
   });
 
@@ -27,6 +28,7 @@ class OperationLine {
   final List<int> moveLineIds;
   final String sourcePackage;
   final String destinationPackage;
+  final int? destinationPackageId;
   final String destinationContainer;
 
   factory OperationLine.fromJson(Map<String, dynamic> json) {
@@ -65,6 +67,7 @@ class OperationLine {
               .toList(growable: false),
       sourcePackage: (json['_source_package'] ?? '').toString(),
       destinationPackage: (json['_destination_package'] ?? '').toString(),
+      destinationPackageId: (json['_destination_package_id'] as num?)?.toInt(),
       destinationContainer: (json['_destination_container'] ?? '').toString(),
     );
   }
@@ -82,6 +85,7 @@ class OperationLine {
     moveLineIds: moveLineIds,
     sourcePackage: sourcePackage,
     destinationPackage: destinationPackage,
+    destinationPackageId: destinationPackageId,
     destinationContainer: destinationContainer,
   );
 }
