@@ -13,6 +13,17 @@ class PreferencesService {
   static const _printerPortKey = 'zpl_printer_port';
   static const _zplTemplateKey = 'zpl_template';
   static const _zplPriceKey = 'zpl_with_price';
+  static const _hiddenPackageReportsKey = 'hidden_package_reports';
+
+  Future<Set<String>> loadHiddenPackageReports() async {
+    final p = await SharedPreferences.getInstance();
+    return (p.getStringList(_hiddenPackageReportsKey) ?? <String>[]).toSet();
+  }
+
+  Future<void> saveHiddenPackageReports(Set<String> reports) async {
+    final p = await SharedPreferences.getInstance();
+    await p.setStringList(_hiddenPackageReportsKey, reports.toList()..sort());
+  }
 
   Future<Map<String, dynamic>> loadZplPrinter() async {
     final p = await SharedPreferences.getInstance();

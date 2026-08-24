@@ -10,6 +10,7 @@ import '../models/package_option.dart';
 import '../models/stock_operation.dart';
 import '../services/odoo_client.dart';
 import '../services/barcode_pdf_service.dart';
+import '../services/preferences_service.dart';
 import 'product_quantity_page.dart';
 import 'widgets/package_picker_dialog.dart';
 
@@ -54,7 +55,9 @@ enum _BarcodeLabelFormat {
   fourByTwelveNoPrice(
     '4 x 12 sans le prix',
     'product.report_product_template_label_4x12_noprice',
-  );
+  ),
+  zpl('Étiquettes ZPL', 'zpl'),
+  zplWithPrice('Étiquettes ZPL avec prix', 'zplxprice');
 
   const _BarcodeLabelFormat(this.label, this.reportName);
   final String label;
@@ -90,6 +93,13 @@ class _OperationDetailPageState extends State<OperationDetailPage>
   bool _showTouchKeyboard = false;
   bool _scanBusy = false;
   bool _printing = false;
+  int? _barcodeQuantityOverride;
+  bool _validated = false;
+
+  bool get _isLocked =>
+      _validated ||
+      widget.operation.state == 'done' ||
+      widget.operation.state == 'cancel';
   @override
   void initState() {
     super.initState();
@@ -144,7 +154,38 @@ class _OperationDetailPageState extends State<OperationDetailPage>
       ),
       body: Column(
         children: <Widget>[
-          if (!_cameraVisible && !_manualScanVisible)
+          if (_isLocked)
+            Material(
+              color: Theme.of(context).colorScheme.errorContainer,
+              child: SizedBox(
+                width: double.infinity,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                  child: Row(
+                    children: <Widget>[
+                      Icon(
+                        Icons.lock_outline,
+                        color: Theme.of(context).colorScheme.onErrorContainer,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Ce transfert est déjà effectué',
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.onErrorContainer,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          if (!_isLocked && !_cameraVisible && !_manualScanVisible)
             Material(
               color: Theme.of(context).colorScheme.surfaceContainerLow,
               child: Padding(
@@ -153,7 +194,7 @@ class _OperationDetailPageState extends State<OperationDetailPage>
                   children: <Widget>[
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: _controller.saving ? null : _toggleCamera,
+                        onPressed: _controller.saving || _isLocked ? null : _toggleCamera,
                         icon: const Icon(Icons.photo_camera_outlined),
                         label: const Text('SCAN CAMÉRA'),
                       ),
@@ -167,7 +208,7 @@ class _OperationDetailPageState extends State<OperationDetailPage>
                     const SizedBox(width: 12),
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: _controller.saving
+                        onPressed: _controller.saving || _isLocked
                             ? null
                             : _toggleManualScan,
                         icon: const Icon(Icons.keyboard_outlined),
@@ -178,9 +219,9 @@ class _OperationDetailPageState extends State<OperationDetailPage>
                 ),
               ),
             ),
-          if (_cameraVisible) _buildInlineScanner(),
-          if (_manualScanVisible) _buildManualScanner(),
-          if (_allProductsCompleted) _buildCompletionBanner(),
+          if (_cameraVisible && !_isLocked) _buildInlineScanner(),
+          if (_manualScanVisible && !_isLocked) _buildManualScanner(),
+          if (!_isLocked && _allProductsCompleted) _buildCompletionBanner(),
           if (widget.operation.origin.isNotEmpty)
             Container(
               width: double.infinity,
@@ -198,7 +239,7 @@ class _OperationDetailPageState extends State<OperationDetailPage>
             children: <Widget>[
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: _controller.saving ? null : _toggleManualScan,
+                  onPressed: _controller.saving || _isLocked ? null : _toggleManualScan,
                   icon: const Icon(Icons.add),
                   label: const Text('Ajouter un produit'),
                 ),
@@ -206,7 +247,7 @@ class _OperationDetailPageState extends State<OperationDetailPage>
               const SizedBox(width: 8),
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: _controller.saving ? null : _globalPackage,
+                  onPressed: _controller.saving || _isLocked ? null : _globalPackage,
                   icon: const Icon(Icons.inventory_2_outlined),
                   label: const Text('Mettre en colis'),
                 ),
@@ -214,7 +255,7 @@ class _OperationDetailPageState extends State<OperationDetailPage>
               const SizedBox(width: 8),
               Expanded(
                 child: FilledButton.icon(
-                  onPressed: _controller.saving ? null : _validate,
+                  onPressed: _controller.saving || _isLocked ? null : _validate,
                   icon: const Icon(Icons.check),
                   label: const Text('Valider'),
                 ),
@@ -262,6 +303,97 @@ class _OperationDetailPageState extends State<OperationDetailPage>
       ),
     );
     if (choice == null || !mounted) return;
+    String? packageReportName;
+    if (choice == _PrintChoice.packages) {
+      final reports = await widget.client.getPackageReports(widget.url);
+      if (!mounted || reports.isEmpty) return;
+      final preferences = PreferencesService();
+      final hiddenReports = await preferences.loadHiddenPackageReports();
+      if (!mounted) return;
+      var editingVisibility = false;
+      packageReportName = await showModalBottomSheet<String>(
+        context: context,
+        builder: (sheetContext) => StatefulBuilder(
+          builder: (context, setSheetState) => SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+              const ListTile(
+                leading: Icon(Icons.inventory_2_outlined),
+                title: Text('Imprimer le colis'),
+              ),
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: () => setSheetState(() {
+                        hiddenReports.clear();
+                        editingVisibility = true;
+                        preferences.saveHiddenPackageReports(hiddenReports);
+                      }),
+                      icon: const Icon(Icons.visibility_outlined),
+                      label: const Text('Tout afficher'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => setSheetState(() {
+                        hiddenReports.addAll(
+                          reports.map((r) => r['report_name'].toString()),
+                        );
+                        editingVisibility = true;
+                        preferences.saveHiddenPackageReports(hiddenReports);
+                      }),
+                      icon: const Icon(Icons.visibility_off_outlined),
+                      label: const Text('Tout cacher'),
+                    ),
+                  ),
+                ],
+              ),
+              IconButton(
+                tooltip: editingVisibility ? 'Terminer' : 'Modifier les rapports affichés',
+                onPressed: () => setSheetState(() => editingVisibility = !editingVisibility),
+                icon: Icon(editingVisibility ? Icons.check : Icons.edit_outlined),
+              ),
+              for (final report in reports.where(
+                (r) => editingVisibility ||
+                    !hiddenReports.contains(r['report_name']?.toString()),
+              ))
+                ListTile(
+                    enabled: editingVisibility ||
+                        !hiddenReports.contains(report['report_name']?.toString()),
+                    leading: const Icon(Icons.picture_as_pdf),
+                    title: Text(report['name']?.toString() ?? 'Rapport colis'),
+                    subtitle: Text(_packagePaperFormat(report)),
+                    onTap: () => Navigator.pop(sheetContext, report['report_name']?.toString()),
+                    trailing: editingVisibility
+                        ? IconButton(
+                            icon: Icon(hiddenReports.contains(report['report_name']?.toString())
+                                ? Icons.visibility_off
+                                : Icons.visibility),
+                            onPressed: () async {
+                      final name = report['report_name']?.toString();
+                      if (name == null) return;
+                      setSheetState(() {
+                        if (hiddenReports.contains(name)) {
+                          hiddenReports.remove(name);
+                        } else {
+                          hiddenReports.add(name);
+                        }
+                      });
+                      await preferences.saveHiddenPackageReports(hiddenReports);
+                            },
+                          )
+                        : null,
+                  ),
+              ],
+            ),
+          ),
+        ),
+      );
+      if (packageReportName == null || !mounted) return;
+    }
     _BarcodeLabelFormat? barcodeFormat;
     if (choice == _PrintChoice.barcodes) {
       barcodeFormat = await _showBarcodeFormatDialog();
@@ -293,7 +425,8 @@ class _OperationDetailPageState extends State<OperationDetailPage>
           final productCodes = line.productId == null ? null : codes[line.productId];
           if (productCodes == null || productCodes.isEmpty) continue;
           final quantity = line.expectedQuantity.ceil().clamp(1, 999);
-          for (var index = 0; index < quantity; index++) {
+          final copies = _barcodeQuantityOverride ?? quantity;
+          for (var index = 0; index < copies; index++) {
             labels.add(BarcodePdfItem(code: productCodes.first, name: line.productName));
           }
         }
@@ -331,7 +464,7 @@ class _OperationDetailPageState extends State<OperationDetailPage>
             ? (barcodeReportName ??
                 (throw Exception('Format de code-barres non sélectionné')))
             : choice == _PrintChoice.packages
-            ? 'stock.action_report_package_barcode'
+            ? packageReportName!
             : choice.reportName,
         recordIds: choice == _PrintChoice.barcodes
             ? const <int>[]
@@ -358,16 +491,26 @@ class _OperationDetailPageState extends State<OperationDetailPage>
     }
   }
 
+  String _packagePaperFormat(Map<String, dynamic> report) {
+    final paper = report['paperformat_id'];
+    if (paper is List && paper.length > 1) return paper[1].toString();
+    return 'Format de papier Odoo';
+  }
+
   String _odoo19Layout(_BarcodeLabelFormat format) => switch (format) {
     _BarcodeLabelFormat.dymo => 'dymo',
     _BarcodeLabelFormat.twoBySeven => '2x7xprice',
     _BarcodeLabelFormat.fourBySeven => '4x7xprice',
     _BarcodeLabelFormat.fourByTwelve => '4x12',
     _BarcodeLabelFormat.fourByTwelveNoPrice => '4x12xprice',
+    _BarcodeLabelFormat.zpl => 'zpl',
+    _BarcodeLabelFormat.zplWithPrice => 'zplxprice',
   };
 
   Future<_BarcodeLabelFormat?> _showBarcodeFormatDialog() {
     var selected = _BarcodeLabelFormat.twoBySeven;
+    var customQuantity = false;
+    var customQuantityText = '';
     return showDialog<_BarcodeLabelFormat>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
@@ -384,6 +527,20 @@ class _OperationDetailPageState extends State<OperationDetailPage>
                 ),
                 const SizedBox(height: 6),
                 const Text('Quantités de l’opération'),
+                RadioGroup<bool>(
+                  groupValue: customQuantity,
+                  onChanged: (value) => setDialogState(() => customQuantity = value ?? false),
+                  child: Column(children: const <Widget>[
+                    RadioListTile<bool>(contentPadding: EdgeInsets.zero, dense: true, title: Text('Quantités de l’opération'), value: false),
+                    RadioListTile<bool>(contentPadding: EdgeInsets.zero, dense: true, title: Text('Quantité personnalisée'), value: true),
+                  ]),
+                ),
+                if (customQuantity)
+                  TextField(
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Quantité'),
+                    onChanged: (value) => customQuantityText = value,
+                  ),
                 const SizedBox(height: 16),
                 const Text(
                   'Format',
@@ -416,7 +573,12 @@ class _OperationDetailPageState extends State<OperationDetailPage>
               child: const Text('Ignorer'),
             ),
             FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, selected),
+              onPressed: () {
+                final quantity = int.tryParse(customQuantityText);
+                if (customQuantity && (quantity == null || quantity <= 0)) return;
+                setState(() => _barcodeQuantityOverride = customQuantity ? quantity : null);
+                Navigator.pop(dialogContext, selected);
+              },
               child: const Text('Imprimer'),
             ),
           ],
@@ -458,7 +620,7 @@ class _OperationDetailPageState extends State<OperationDetailPage>
           return _ProductLineCard(
             line: line,
             highlighted: _controller.lastScannedLineId == line.id,
-            enabled: !_controller.saving,
+            enabled: !_controller.saving && !_isLocked,
             onSetQuantity: (quantity) =>
                 _controller.setQuantity(line.id, quantity),
             onEdit: () => _editQuantity(line),
@@ -510,6 +672,7 @@ class _OperationDetailPageState extends State<OperationDetailPage>
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
 
   Future<void> _toggleCamera() async {
+    if (_isLocked) return;
     if (_cameraVisible) {
       await _cameraController.stop();
       if (mounted) setState(() => _cameraVisible = false);
@@ -643,6 +806,7 @@ class _OperationDetailPageState extends State<OperationDetailPage>
   }
 
   void _toggleManualScan() {
+    if (_isLocked) return;
     final opening = !_manualScanVisible;
     setState(() => _manualScanVisible = opening);
     if (opening) _saveScanMode('pda');
@@ -838,6 +1002,34 @@ class _OperationDetailPageState extends State<OperationDetailPage>
     }
   }
 
+  Future<void> _showPostValidationActions() async {
+    if (!mounted) return;
+    final action = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Opération validée'),
+        content: const Text('Que souhaitez-vous faire maintenant ?'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, 'close'),
+            child: const Text('Fermer'),
+          ),
+          FilledButton.icon(
+            onPressed: () => Navigator.pop(dialogContext, 'print'),
+            icon: const Icon(Icons.print),
+            label: const Text('Imprimer'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    if (action == 'print') {
+      await _showPrintMenu();
+    } else if (action == 'close') {
+      Navigator.of(context).pop(true);
+    }
+  }
+
   Future<void> _validate() async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -892,9 +1084,11 @@ class _OperationDetailPageState extends State<OperationDetailPage>
           result,
           createBackorder: createBackorder,
         );
-        if (mounted) Navigator.of(context).pop(true);
+        if (mounted) setState(() => _validated = true);
+        if (mounted) await _showPostValidationActions();
       } else {
-        Navigator.of(context).pop(true);
+        if (mounted) setState(() => _validated = true);
+        await _showPostValidationActions();
       }
     } catch (exception) {
       if (mounted) {
@@ -970,9 +1164,13 @@ class _ProductLineCard extends StatelessWidget {
                         children: <Widget>[
                           const Icon(Icons.login, size: 16),
                           const SizedBox(width: 5),
-                          Text(
-                            line.destination,
-                            style: const TextStyle(fontStyle: FontStyle.italic),
+                          Expanded(
+                            child: Text(
+                              line.destination,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontStyle: FontStyle.italic),
+                            ),
                           ),
                         ],
                       ),
@@ -982,7 +1180,7 @@ class _ProductLineCard extends StatelessWidget {
               ),
               IconButton.filledTonal(
                 tooltip: 'Modifier',
-                onPressed: onEdit,
+                onPressed: enabled ? onEdit : null,
                 icon: const Icon(Icons.edit_outlined),
               ),
             ],

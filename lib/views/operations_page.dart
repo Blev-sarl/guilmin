@@ -23,6 +23,7 @@ class OperationsPage extends StatefulWidget {
 class _OperationsPageState extends State<OperationsPage> {
   late final OperationsController _controller;
   String _query = '';
+  final Set<String> _stateFilter = <String>{'assigned'};
 
   @override
   void initState() {
@@ -70,6 +71,47 @@ class _OperationsPageState extends State<OperationsPage> {
                   setState(() => _query = value.trim().toLowerCase()),
             ),
           ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: <Widget>[
+                FilterChip(
+                  label: const Text('Prêt'),
+                  selected: _stateFilter.contains('assigned'),
+                  onSelected: (selected) => setState(() {
+                    if (selected) { _stateFilter.add('assigned'); } else { _stateFilter.remove('assigned'); }
+                  }),
+                ),
+                const SizedBox(width: 8),
+                FilterChip(
+                  label: const Text('Brouillon'),
+                  selected: _stateFilter.contains('draft'),
+                  onSelected: (selected) => setState(() {
+                    if (selected) { _stateFilter.add('draft'); } else { _stateFilter.remove('draft'); }
+                  }),
+                ),
+                const SizedBox(width: 8),
+                FilterChip(
+                  label: const Text('En attente'),
+                  selected: _stateFilter.contains('waiting'),
+                  onSelected: (selected) => setState(() {
+                    if (selected) { _stateFilter.add('waiting'); } else { _stateFilter.remove('waiting'); }
+                  }),
+                ),
+                const SizedBox(width: 8),
+                FilterChip(
+                  label: const Text('Terminé'),
+                  selected: _stateFilter.contains('done'),
+                  onSelected: (selected) => setState(() {
+                    if (selected) { _stateFilter.add('done'); } else { _stateFilter.remove('done'); }
+                  }),
+                ),
+                ],
+              ),
+            ),
+          ),
           Expanded(child: _buildBody()),
         ],
       ),
@@ -101,6 +143,10 @@ class _OperationsPageState extends State<OperationsPage> {
 
     final operations = _controller.operations
         .where((operation) {
+          final stateMatches = operation.state == 'confirmed'
+              ? _stateFilter.contains('waiting')
+              : _stateFilter.contains(operation.state);
+          if (!stateMatches) return false;
           if (_query.isEmpty) return true;
           return operation.reference.toLowerCase().contains(_query) ||
               operation.origin.toLowerCase().contains(_query) ||
@@ -125,15 +171,18 @@ class _OperationsPageState extends State<OperationsPage> {
           final operation = operations[index];
           return _OperationCard(
             operation: operation,
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => OperationDetailPage(
-                  client: widget.client,
-                  url: widget.url,
-                  operation: operation,
+            onTap: () async {
+              await Navigator.of(context).push<bool>(
+                MaterialPageRoute<bool>(
+                  builder: (_) => OperationDetailPage(
+                    client: widget.client,
+                    url: widget.url,
+                    operation: operation,
+                  ),
                 ),
-              ),
-            ),
+              );
+              if (mounted) await _controller.load();
+            },
           );
         },
       ),
@@ -251,6 +300,8 @@ class _StateChip extends StatelessWidget {
       'waiting': 'En attente',
       'confirmed': 'En attente',
       'assigned': 'Prêt',
+      'done': 'Terminé',
+      'cancel': 'Annulé',
     };
     final ready = state == 'assigned';
     final color = ready ? Colors.green : Colors.orange;

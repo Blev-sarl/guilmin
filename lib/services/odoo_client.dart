@@ -150,7 +150,7 @@ class OdooClient {
           <Object>[
             'state',
             'not in',
-            <String>['done', 'cancel'],
+            <String>['cancel'],
           ],
         ],
         'fields': <String>[
@@ -521,6 +521,24 @@ class OdooClient {
       throw Exception('Odoo n’a pas retourné de rapport d’étiquettes');
     }
     return Map<String, dynamic>.from(action);
+  }
+
+  Future<List<Map<String, dynamic>>> getPackageReports(String url) async {
+    return _call(
+      url: url,
+      model: 'ir.actions.report',
+      method: 'search_read',
+      kwargs: <String, dynamic>{
+        'domain': <Object>[
+          <Object>['model', '=', 'stock.package'],
+          <Object>['report_type', 'in', <String>['qweb-pdf', 'qweb-text']],
+        ],
+        'fields': <String>['name', 'report_name', 'report_type', 'paperformat_id'],
+        'order': 'name',
+        'context': <String, String>{'lang': 'fr_BE'},
+      },
+      errorMessage: 'Impossible de charger les rapports de colis',
+    );
   }
 
   Future<void> putInPack(String url, int operationId) async {
