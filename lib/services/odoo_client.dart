@@ -130,6 +130,7 @@ class OdooClient {
           'count_picking',
         ],
         'order': 'sequence, name',
+        'context': <String, String>{'lang': 'fr_BE'},
       },
       errorMessage: 'Impossible de charger les types de réceptions',
     );

@@ -90,8 +90,6 @@ class OperationDetailController extends ChangeNotifier {
     }
     await increment(line.id);
     if (error != null) throw Exception(error);
-    lastScannedLineId = line.id;
-    notifyListeners();
     return line;
   }
 

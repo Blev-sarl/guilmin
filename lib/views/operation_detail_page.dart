@@ -318,11 +318,23 @@ class _OperationDetailPageState extends State<OperationDetailPage>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
-              const ListTile(
-                leading: Icon(Icons.inventory_2_outlined),
-                title: Text('Imprimer le colis'),
+              ListTile(
+                leading: const Icon(Icons.inventory_2_outlined),
+                title: const Text('Imprimer le colis'),
+                trailing: IconButton(
+                  tooltip: editingVisibility
+                      ? 'Terminer la personnalisation'
+                      : 'Modifier les rapports affichés',
+                  onPressed: () => setSheetState(
+                    () => editingVisibility = !editingVisibility,
+                  ),
+                  icon: Icon(
+                    editingVisibility ? Icons.check : Icons.edit_outlined,
+                  ),
+                ),
               ),
-              Row(
+              if (editingVisibility)
+                Row(
                 children: <Widget>[
                   Expanded(
                     child: FilledButton.icon(
@@ -350,11 +362,6 @@ class _OperationDetailPageState extends State<OperationDetailPage>
                     ),
                   ),
                 ],
-              ),
-              IconButton(
-                tooltip: editingVisibility ? 'Terminer' : 'Modifier les rapports affichés',
-                onPressed: () => setSheetState(() => editingVisibility = !editingVisibility),
-                icon: Icon(editingVisibility ? Icons.check : Icons.edit_outlined),
               ),
               for (final report in reports.where(
                 (r) => editingVisibility ||
@@ -1025,8 +1032,6 @@ class _OperationDetailPageState extends State<OperationDetailPage>
     if (!mounted) return;
     if (action == 'print') {
       await _showPrintMenu();
-    } else if (action == 'close') {
-      Navigator.of(context).pop(true);
     }
   }
 
@@ -1055,34 +1060,9 @@ class _OperationDetailPageState extends State<OperationDetailPage>
       final result = await _controller.validate();
       if (!mounted) return;
       if (result is Map) {
-        final model = result['res_model']?.toString();
-        bool createBackorder = true;
-        if (model == 'stock.backorder.confirmation') {
-          final choice = await showDialog<bool>(
-            context: context,
-            builder: (dialogContext) => AlertDialog(
-              title: const Text('Créer un reliquat ?'),
-              content: const Text(
-                'Certaines quantités ne sont pas terminées. Voulez-vous créer un reliquat pour les recevoir plus tard ?',
-              ),
-              actions: <Widget>[
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(false),
-                  child: const Text('Sans reliquat'),
-                ),
-                FilledButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(true),
-                  child: const Text('Créer un reliquat'),
-                ),
-              ],
-            ),
-          );
-          if (choice == null || !mounted) return;
-          createBackorder = choice;
-        }
         await _controller.confirmValidationAction(
           result,
-          createBackorder: createBackorder,
+          createBackorder: true,
         );
         if (mounted) setState(() => _validated = true);
         if (mounted) await _showPostValidationActions();

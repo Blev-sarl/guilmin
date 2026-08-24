@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'controllers/login_controller.dart';
 import 'services/odoo_client.dart';
 import 'services/preferences_service.dart';
@@ -41,8 +42,18 @@ class OdooPickingApp extends StatelessWidget {
       outline: border,
     );
     return MaterialApp(
-      title: 'guilmin',
+      title: 'Guilmin',
       debugShowCheckedModeBanner: false,
+      locale: const Locale('fr', 'BE'),
+      supportedLocales: const <Locale>[
+        Locale('fr', 'BE'),
+        Locale('fr'),
+      ],
+      localizationsDelegates: const <LocalizationsDelegate<dynamic>>[
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       theme: ThemeData(
         colorScheme: scheme,
         useMaterial3: true,

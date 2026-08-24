@@ -6,11 +6,12 @@ class AppVersionLabel extends StatelessWidget {
   const AppVersionLabel({super.key, this.compact = false});
 
   final bool compact;
+  static final Future<PackageInfo> _packageInfo = PackageInfo.fromPlatform();
 
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<PackageInfo>(
-      future: PackageInfo.fromPlatform(),
+      future: _packageInfo,
       builder: (context, snapshot) {
         final info = snapshot.data;
         if (info == null) return const SizedBox.shrink();

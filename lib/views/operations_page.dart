@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../controllers/operations_controller.dart';
 import '../models/reception_type.dart';
@@ -23,6 +25,7 @@ class OperationsPage extends StatefulWidget {
 class _OperationsPageState extends State<OperationsPage> {
   late final OperationsController _controller;
   String _query = '';
+  Timer? _searchDebounce;
   final Set<String> _stateFilter = <String>{'assigned'};
 
   @override
@@ -42,6 +45,7 @@ class _OperationsPageState extends State<OperationsPage> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _controller.removeListener(_refresh);
     _controller.dispose();
     super.dispose();
@@ -67,49 +71,84 @@ class _OperationsPageState extends State<OperationsPage> {
             child: SearchBar(
               hintText: 'Référence, fournisseur ou document d’origine (PO…)',
               leading: const Icon(Icons.search),
-              onChanged: (value) =>
-                  setState(() => _query = value.trim().toLowerCase()),
+              onChanged: (value) {
+                _searchDebounce?.cancel();
+                _searchDebounce = Timer(const Duration(milliseconds: 180), () {
+                  if (mounted) {
+                    setState(() => _query = value.trim().toLowerCase());
+                  }
+                });
+              },
             ),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              alignment: WrapAlignment.start,
                 children: <Widget>[
                 FilterChip(
                   label: const Text('Prêt'),
+                  selectedColor: const Color(0xFF8FD19A),
+                  checkmarkColor: const Color(0xFF236B35),
+                  labelStyle: TextStyle(
+                    color: _stateFilter.contains('assigned')
+                        ? const Color(0xFF123F20)
+                        : null,
+                    fontWeight: FontWeight.w700,
+                  ),
                   selected: _stateFilter.contains('assigned'),
                   onSelected: (selected) => setState(() {
                     if (selected) { _stateFilter.add('assigned'); } else { _stateFilter.remove('assigned'); }
                   }),
                 ),
-                const SizedBox(width: 8),
                 FilterChip(
                   label: const Text('Brouillon'),
+                  selectedColor: const Color(0xFFB5C7DC),
+                  checkmarkColor: const Color(0xFF365A7D),
+                  labelStyle: TextStyle(
+                    color: _stateFilter.contains('draft')
+                        ? const Color(0xFF243F5C)
+                        : null,
+                    fontWeight: FontWeight.w700,
+                  ),
                   selected: _stateFilter.contains('draft'),
                   onSelected: (selected) => setState(() {
                     if (selected) { _stateFilter.add('draft'); } else { _stateFilter.remove('draft'); }
                   }),
                 ),
-                const SizedBox(width: 8),
                 FilterChip(
                   label: const Text('En attente'),
+                  selectedColor: const Color(0xFFF5B85F),
+                  checkmarkColor: const Color(0xFF9A5700),
+                  labelStyle: TextStyle(
+                    color: _stateFilter.contains('waiting')
+                        ? const Color(0xFF643800)
+                        : null,
+                    fontWeight: FontWeight.w700,
+                  ),
                   selected: _stateFilter.contains('waiting'),
                   onSelected: (selected) => setState(() {
                     if (selected) { _stateFilter.add('waiting'); } else { _stateFilter.remove('waiting'); }
                   }),
                 ),
-                const SizedBox(width: 8),
                 FilterChip(
                   label: const Text('Terminé'),
+                  selectedColor: const Color(0xFF8DBBE8),
+                  checkmarkColor: const Color(0xFF245D98),
+                  labelStyle: TextStyle(
+                    color: _stateFilter.contains('done')
+                        ? const Color(0xFF173F6A)
+                        : null,
+                    fontWeight: FontWeight.w700,
+                  ),
                   selected: _stateFilter.contains('done'),
                   onSelected: (selected) => setState(() {
                     if (selected) { _stateFilter.add('done'); } else { _stateFilter.remove('done'); }
                   }),
                 ),
-                ],
-              ),
+              ],
             ),
           ),
           Expanded(child: _buildBody()),
@@ -164,6 +203,9 @@ class _OperationsPageState extends State<OperationsPage> {
     return RefreshIndicator(
       onRefresh: _controller.load,
       child: ListView.separated(
+        cacheExtent: 600,
+        addAutomaticKeepAlives: false,
+        addSemanticIndexes: false,
         padding: const EdgeInsets.fromLTRB(12, 4, 12, 20),
         itemCount: operations.length,
         separatorBuilder: (_, _) => const SizedBox(height: 4),
@@ -199,6 +241,7 @@ class _OperationCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final ready = operation.state == 'assigned';
     return Card(
+      elevation: 0,
       color: ready ? const Color(0xFFF1F8F2) : Colors.white,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(10),
@@ -305,13 +348,20 @@ class _StateChip extends StatelessWidget {
     };
     final ready = state == 'assigned';
     final color = ready ? Colors.green : Colors.orange;
-    return Chip(
-      visualDensity: VisualDensity.compact,
-      backgroundColor: color.withValues(alpha: 0.12),
-      side: BorderSide(color: color.withValues(alpha: 0.35)),
-      label: Text(
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Text(
         labels[state] ?? state,
-        style: TextStyle(color: color.shade700, fontWeight: FontWeight.w600),
+        style: TextStyle(
+          color: color.shade700,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }
