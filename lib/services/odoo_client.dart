@@ -157,6 +157,7 @@ class OdooClient {
         'fields': <String>[
           'id',
           'name',
+          'purchase_id',
           'origin',
           'partner_id',
           'scheduled_date',
@@ -166,6 +167,40 @@ class OdooClient {
       },
       errorMessage: 'Impossible de charger les opérations',
     );
+    final purchaseIds = result
+        .map((picking) => picking['purchase_id'])
+        .whereType<List>()
+        .where((relation) => relation.isNotEmpty && relation[0] is num)
+        .map((relation) => (relation[0] as num).toInt())
+        .toSet()
+        .toList();
+    if (purchaseIds.isNotEmpty) {
+      final purchases = await _call(
+        url: url,
+        model: 'purchase.order',
+        method: 'search_read',
+        kwargs: <String, dynamic>{
+          'domain': <List<Object>>[
+            <Object>['id', 'in', purchaseIds],
+          ],
+          'fields': <String>['id', 'partner_ref'],
+        },
+        errorMessage: 'Impossible de charger les références fournisseur',
+      );
+      final supplierReferences = <int, String>{
+        for (final purchase in purchases)
+          (purchase['id'] as num).toInt(): purchase['partner_ref'] is String
+              ? (purchase['partner_ref'] as String).trim()
+              : '',
+      };
+      for (final picking in result) {
+        final purchase = picking['purchase_id'];
+        if (purchase is List && purchase.isNotEmpty && purchase[0] is num) {
+          picking['partner_ref'] =
+              supplierReferences[(purchase[0] as num).toInt()] ?? '';
+        }
+      }
+    }
     return result.map(StockOperation.fromJson).toList(growable: false);
   }
 
@@ -244,6 +279,8 @@ class OdooClient {
         item['_move_id'] = moveId;
         item['_move_line_ids'] = <dynamic>[detail['id']];
         item['_done_quantity'] = detail['picked'] == true ? quantity : 0;
+        // Odoo peut répartir un mouvement en plusieurs lignes (scannée et
+        // restante). Chaque ligne doit afficher sa propre quantité.
         item['product_uom_qty'] = quantity;
         item['_unit'] = _relationName(detail['product_uom_id']);
         item['_source_package'] = _relationName(detail['package_id']);

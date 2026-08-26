@@ -189,7 +189,8 @@ class _OperationsPageState extends State<OperationsPage> {
           if (_query.isEmpty) return true;
           return operation.reference.toLowerCase().contains(_query) ||
               operation.origin.toLowerCase().contains(_query) ||
-              operation.partner.toLowerCase().contains(_query);
+              operation.partner.toLowerCase().contains(_query) ||
+              operation.supplierReference.toLowerCase().contains(_query);
         })
         .toList(growable: false);
 
@@ -276,6 +277,14 @@ class _OperationCard extends StatelessWidget {
                   icon: Icons.description_outlined,
                   label: 'Document d’origine',
                   text: operation.origin,
+                ),
+              ],
+              if (operation.supplierReference.isNotEmpty) ...<Widget>[
+                const SizedBox(height: 6),
+                _Info(
+                  icon: Icons.receipt_long_outlined,
+                  label: 'Référence fournisseur',
+                  text: operation.supplierReference,
                 ),
               ],
               if (operation.partner.isNotEmpty) ...<Widget>[

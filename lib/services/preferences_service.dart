@@ -17,6 +17,10 @@ class PreferencesService {
   static const _printerPortKey = 'zpl_printer_port';
   static const _zplTemplateKey = 'zpl_template';
   static const _zplPriceKey = 'zpl_with_price';
+  static const _zplWidthKey = 'zpl_width_mm';
+  static const _zplHeightKey = 'zpl_height_mm';
+  static const _zplDpiKey = 'zpl_dpi';
+  static const _zplRotationKey = 'zpl_rotation';
   static const _hiddenPackageReportsKey = 'hidden_package_reports';
 
   Future<Set<String>> loadHiddenPackageReports() async {
@@ -31,12 +35,12 @@ class PreferencesService {
 
   Future<Map<String, dynamic>> loadZplPrinter() async {
     final p = await _preferences;
-    return {'ip': p.getString(_printerIpKey) ?? '', 'port': p.getInt(_printerPortKey) ?? 9100, 'template': p.getString(_zplTemplateKey) ?? 'normal', 'withPrice': p.getBool(_zplPriceKey) ?? false};
+    return {'ip': p.getString(_printerIpKey) ?? '', 'port': p.getInt(_printerPortKey) ?? 9100, 'template': p.getString(_zplTemplateKey) ?? 'normal', 'withPrice': p.getBool(_zplPriceKey) ?? false, 'widthMm': p.getDouble(_zplWidthKey) ?? 71.0, 'heightMm': p.getDouble(_zplHeightKey) ?? 107.0, 'dpi': p.getInt(_zplDpiKey) ?? 203, 'rotation': p.getInt(_zplRotationKey) ?? 0};
   }
 
-  Future<void> saveZplPrinter({required String ip, required int port, required String template, required bool withPrice}) async {
+  Future<void> saveZplPrinter({required String ip, required int port, required String template, required bool withPrice, required double widthMm, required double heightMm, required int dpi, required int rotation}) async {
     final p = await _preferences;
-    await Future.wait([p.setString(_printerIpKey, ip), p.setInt(_printerPortKey, port), p.setString(_zplTemplateKey, template), p.setBool(_zplPriceKey, withPrice)]);
+    await Future.wait([p.setString(_printerIpKey, ip), p.setInt(_printerPortKey, port), p.setString(_zplTemplateKey, template), p.setBool(_zplPriceKey, withPrice), p.setDouble(_zplWidthKey, widthMm), p.setDouble(_zplHeightKey, heightMm), p.setInt(_zplDpiKey, dpi), p.setInt(_zplRotationKey, rotation)]);
   }
 
   Future<String?> loadPrinter() async {

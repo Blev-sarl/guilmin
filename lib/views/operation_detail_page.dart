@@ -11,6 +11,7 @@ import '../models/stock_operation.dart';
 import '../services/odoo_client.dart';
 import '../services/barcode_pdf_service.dart';
 import '../services/preferences_service.dart';
+import '../services/zpl_printer_service.dart';
 import 'product_quantity_page.dart';
 import 'widgets/package_picker_dialog.dart';
 
@@ -62,6 +63,12 @@ enum _BarcodeLabelFormat {
   const _BarcodeLabelFormat(this.label, this.reportName);
   final String label;
   final String reportName;
+}
+
+class _PackagePrintRequest {
+  const _PackagePrintRequest(this.reportName, this.asZpl);
+  final String reportName;
+  final bool asZpl;
 }
 
 class OperationDetailPage extends StatefulWidget {
@@ -311,7 +318,7 @@ class _OperationDetailPageState extends State<OperationDetailPage>
       final hiddenReports = await preferences.loadHiddenPackageReports();
       if (!mounted) return;
       var editingVisibility = false;
-      packageReportName = await showModalBottomSheet<String>(
+      final packageRequest = await showModalBottomSheet<_PackagePrintRequest>(
         context: context,
         builder: (sheetContext) => StatefulBuilder(
           builder: (context, setSheetState) => SafeArea(
@@ -370,28 +377,49 @@ class _OperationDetailPageState extends State<OperationDetailPage>
                 ListTile(
                     enabled: editingVisibility ||
                         !hiddenReports.contains(report['report_name']?.toString()),
-                    leading: const Icon(Icons.picture_as_pdf),
+                    leading: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        const Icon(Icons.picture_as_pdf),
+                        IconButton(
+                          tooltip: 'Imprimer en ZPL',
+                          icon: const Icon(Icons.print_outlined),
+                          onPressed: editingVisibility ? null : () {
+                            final name = report['report_name']?.toString();
+                            if (name != null) Navigator.pop(sheetContext, _PackagePrintRequest(name, true));
+                          },
+                        ),
+                      ],
+                    ),
                     title: Text(report['name']?.toString() ?? 'Rapport colis'),
                     subtitle: Text(_packagePaperFormat(report)),
-                    onTap: () => Navigator.pop(sheetContext, report['report_name']?.toString()),
+                    onTap: () {
+                      final name = report['report_name']?.toString();
+                      if (name != null) Navigator.pop(sheetContext, _PackagePrintRequest(name, false));
+                    },
                     trailing: editingVisibility
-                        ? IconButton(
+                        ? Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        IconButton(
                             icon: Icon(hiddenReports.contains(report['report_name']?.toString())
                                 ? Icons.visibility_off
                                 : Icons.visibility),
                             onPressed: () async {
-                      final name = report['report_name']?.toString();
-                      if (name == null) return;
-                      setSheetState(() {
-                        if (hiddenReports.contains(name)) {
-                          hiddenReports.remove(name);
-                        } else {
-                          hiddenReports.add(name);
-                        }
-                      });
-                      await preferences.saveHiddenPackageReports(hiddenReports);
+                              final name = report['report_name']?.toString();
+                              if (name == null) return;
+                              setSheetState(() {
+                                if (hiddenReports.contains(name)) {
+                                  hiddenReports.remove(name);
+                                } else {
+                                  hiddenReports.add(name);
+                                }
+                              });
+                              await preferences.saveHiddenPackageReports(hiddenReports);
                             },
-                          )
+                        ),
+                      ],
+                    )
                         : null,
                   ),
               ],
@@ -399,7 +427,12 @@ class _OperationDetailPageState extends State<OperationDetailPage>
           ),
         ),
       );
-      if (packageReportName == null || !mounted) return;
+      if (packageRequest == null || !mounted) return;
+      packageReportName = packageRequest.reportName;
+      if (packageRequest.asZpl) {
+        await _printPackageReportAsZpl(packageReportName);
+        return;
+      }
     }
     _BarcodeLabelFormat? barcodeFormat;
     if (choice == _PrintChoice.barcodes) {
@@ -493,6 +526,68 @@ class _OperationDetailPageState extends State<OperationDetailPage>
           SnackBar(content: Text('Impression impossible : $error')),
         );
       }
+    } finally {
+      if (mounted) setState(() => _printing = false);
+    }
+  }
+
+  Future<void> _printPackageReportAsZpl(String reportName) async {
+    setState(() => _printing = true);
+    try {
+      debugPrint('ZPL: démarrage impression du rapport $reportName');
+      final printer = await PreferencesService().loadZplPrinter();
+      final ip = (printer['ip'] as String).trim();
+      if (ip.isEmpty) throw Exception('Configurez d’abord l’imprimante ZPL');
+      debugPrint('ZPL: imprimante configurée $ip:${printer['port']}');
+      final report = await widget.client.downloadReport(
+        url: widget.url,
+        reportName: reportName,
+        recordIds: _controller.lines.map((line) => line.destinationPackageId).whereType<int>().toSet().toList(),
+        fileName: 'zpl_${widget.operation.reference}',
+      );
+      final zplService = ZplPrinterService();
+      final zpl = await zplService.convertPdfToZpl(
+        pdfBytes: await report.readAsBytes(),
+        dpi: printer['dpi'] as int,
+        widthMm: printer['widthMm'] as double,
+        heightMm: printer['heightMm'] as double,
+        rotation: printer['rotation'] as int,
+      );
+      final zplFile = await zplService.saveZplFile(
+        zpl,
+        'zpl_${widget.operation.reference}_$reportName',
+      );
+      debugPrint('ZPL disponible dans le fichier : ${zplFile.path}');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Fichier ZPL créé : ${zplFile.path}')),
+        );
+      }
+      debugPrint('ZPL: PDF téléchargé, préparation de la conversion');
+      if (!mounted) return;
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Confirmer l’impression ZPL'),
+          content: Text('Envoyer le rapport à l’imprimante $ip ?'),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Annuler'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Envoyer'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+      debugPrint('ZPL: confirmation reçue, envoi en cours');
+      await zplService.sendZpl(zpl: zpl, ip: ip, port: printer['port'] as int);
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Impression ZPL envoyée')));
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Impression ZPL impossible : $error')));
     } finally {
       if (mounted) setState(() => _printing = false);
     }

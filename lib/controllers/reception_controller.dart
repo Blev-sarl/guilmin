@@ -13,43 +13,62 @@ class ReceptionController extends ChangeNotifier {
   Set<int> hiddenTypeIds = <int>{};
   bool loading = false;
   String? error;
+  bool _disposed = false;
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+
+  void _notifyIfMounted() {
+    if (!_disposed) notifyListeners();
+  }
 
   Future<void> load() async {
+    if (_disposed) return;
     loading = true;
     error = null;
-    notifyListeners();
+    _notifyIfMounted();
     try {
       final values = await Future.wait<dynamic>(<Future<dynamic>>[
         client.getReceptionTypes(url),
         preferences.loadHiddenOperationTypeIds(url),
       ]);
+      if (_disposed) return;
       types = values[0] as List<ReceptionType>;
       hiddenTypeIds = values[1] as Set<int>;
     } catch (exception) {
+      if (_disposed) return;
       error = exception.toString().replaceFirst('Exception: ', '');
     } finally {
-      loading = false;
-      notifyListeners();
+      if (!_disposed) {
+        loading = false;
+        _notifyIfMounted();
+      }
     }
   }
 
   bool isHidden(int typeId) => hiddenTypeIds.contains(typeId);
 
   Future<void> toggleVisibility(int typeId) async {
+    if (_disposed) return;
     if (!hiddenTypeIds.add(typeId)) hiddenTypeIds.remove(typeId);
-    notifyListeners();
+    _notifyIfMounted();
     await preferences.saveHiddenOperationTypeIds(url, hiddenTypeIds);
   }
 
   Future<void> showAllTypes() async {
+    if (_disposed) return;
     hiddenTypeIds.clear();
-    notifyListeners();
+    _notifyIfMounted();
     await preferences.saveHiddenOperationTypeIds(url, hiddenTypeIds);
   }
 
   Future<void> hideAllTypes() async {
+    if (_disposed) return;
     hiddenTypeIds = types.map((type) => type.id).toSet();
-    notifyListeners();
+    _notifyIfMounted();
     await preferences.saveHiddenOperationTypeIds(url, hiddenTypeIds);
   }
 }
