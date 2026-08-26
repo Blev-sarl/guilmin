@@ -7,6 +7,7 @@ class StockOperation {
     required this.partner,
     required this.scheduledDate,
     required this.state,
+    required this.hasPackages,
   });
 
   final int id;
@@ -16,6 +17,7 @@ class StockOperation {
   final String partner;
   final DateTime? scheduledDate;
   final String state;
+  final bool hasPackages;
 
   factory StockOperation.fromJson(Map<String, dynamic> json) {
     final partner = json['partner_id'];
@@ -35,6 +37,7 @@ class StockOperation {
           ? DateTime.tryParse(rawDate.replaceFirst(' ', 'T'))
           : null,
       state: (json['state'] ?? 'draft').toString(),
+      hasPackages: json['_has_packages'] == true,
     );
   }
 }

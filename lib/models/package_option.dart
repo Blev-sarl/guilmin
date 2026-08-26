@@ -4,11 +4,13 @@ class PackageOption {
     required this.name,
     required this.location,
     required this.container,
+    this.createdAt,
   });
   final int id;
   final String name;
   final String location;
   final String container;
+  final DateTime? createdAt;
 
   factory PackageOption.fromJson(Map<String, dynamic> json) {
     String relationName(dynamic value) =>
@@ -18,6 +20,9 @@ class PackageOption {
       name: (json['complete_name'] ?? json['name'] ?? '').toString(),
       location: relationName(json['location_id']),
       container: relationName(json['package_dest_id']),
+      createdAt: (json['pack_date'] ?? json['create_date']) is String
+          ? DateTime.tryParse(((json['pack_date'] ?? json['create_date']) as String).replaceFirst(' ', 'T'))
+          : null,
     );
   }
 }

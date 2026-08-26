@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:image/image.dart' as img;
 import 'package:flutter/foundation.dart';
@@ -7,10 +8,11 @@ import 'package:path_provider/path_provider.dart';
 
 class ZplPrinterService {
   Future<File> saveZplFile(String zpl, String name) async {
+    if (zpl.trim().isEmpty) throw Exception('Le contenu ZPL est vide');
     final directory = await getTemporaryDirectory();
     final safeName = name.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
     final file = File('${directory.path}/$safeName.zpl');
-    await file.writeAsString(zpl, flush: true);
+    await file.writeAsBytes(utf8.encode(zpl), flush: true);
     debugPrint('Fichier ZPL enregistré : ${file.path}');
     return file;
   }

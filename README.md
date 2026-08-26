@@ -1,4 +1,4 @@
-# odoo_picking
+# Guilmin
 
 A new Flutter project.
 

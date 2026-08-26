@@ -86,7 +86,38 @@ class OperationDetailController extends ChangeNotifier {
       orElse: () => null,
     );
     if (line == null) {
-      throw Exception('Ce produit ne fait pas partie de cette opération');
+      final kit = await client.getKitComponents(url, productId);
+      if (kit.isEmpty) {
+        throw Exception('Ce produit ne fait pas partie de cette opération');
+      }
+      final required = <int, double>{};
+      for (final component in kit) {
+        final product = component['product_id'];
+        if (product is! List || product.isEmpty || product[0] is! num) {
+          throw Exception('Composition du kit invalide');
+        }
+        final id = (product[0] as num).toInt();
+        required[id] = (required[id] ?? 0) +
+            ((component['product_qty'] as num?)?.toDouble() ?? 0);
+      }
+      final updates = <OperationLine, double>{};
+      for (final entry in required.entries) {
+        final componentLine = lines.cast<OperationLine?>().firstWhere(
+          (item) => item?.productId == entry.key,
+          orElse: () => null,
+        );
+        if (componentLine == null ||
+            componentLine.doneQuantity + entry.value >
+                componentLine.expectedQuantity) {
+          throw Exception('Composants ou quantités du kit absents du transfert');
+        }
+        updates[componentLine] = componentLine.doneQuantity + entry.value;
+      }
+      for (final entry in updates.entries) {
+        await setQuantity(entry.key.id, entry.value);
+        if (error != null) throw Exception(error);
+      }
+      return updates.keys.first;
     }
     await increment(line.id);
     if (error != null) throw Exception(error);

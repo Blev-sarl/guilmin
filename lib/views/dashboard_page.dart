@@ -5,6 +5,7 @@ import 'reception_types_page.dart';
 import 'update_dialog.dart';
 import 'widgets/app_version_label.dart';
 import 'print_settings_page.dart';
+import 'packages_page.dart';
 
 class DashboardPage extends StatelessWidget {
   const DashboardPage({super.key, required this.controller});
@@ -85,6 +86,16 @@ class DashboardPage extends StatelessWidget {
                   ),
                 ),
               ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.inventory_2_outlined, size: 36),
+              title: const Text('Colis', style: TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: const Text('Consulter et créer des colis'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => PackagesPage(client: controller.client, url: controller.url!))),
             ),
           ),
         ],

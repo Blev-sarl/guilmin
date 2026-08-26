@@ -201,6 +201,32 @@ class OdooClient {
         }
       }
     }
+    if (result.isNotEmpty) {
+      final operationIds = result.map((item) => (item['id'] as num).toInt()).toList();
+      final moveLines = await _call(
+        url: url,
+        model: 'stock.move.line',
+        method: 'search_read',
+        kwargs: <String, dynamic>{
+          'domain': <List<Object>>[<Object>['picking_id', 'in', operationIds]],
+          'fields': <String>['picking_id', 'package_id', 'result_package_id'],
+          'limit': 5000,
+        },
+        errorMessage: 'Impossible de vérifier les colis des réceptions',
+      );
+      final packageOperations = <int>{};
+      for (final line in moveLines) {
+        final picking = line['picking_id'];
+        final hasPackage = (line['package_id'] is List && (line['package_id'] as List).isNotEmpty) ||
+            (line['result_package_id'] is List && (line['result_package_id'] as List).isNotEmpty);
+        if (hasPackage && picking is List && picking.isNotEmpty && picking.first is num) {
+          packageOperations.add((picking.first as num).toInt());
+        }
+      }
+      for (final picking in result) {
+        picking['_has_packages'] = packageOperations.contains((picking['id'] as num).toInt());
+      }
+    }
     return result.map(StockOperation.fromJson).toList(growable: false);
   }
 
@@ -323,6 +349,7 @@ class OdooClient {
           'complete_name',
           'location_id',
           'package_dest_id',
+          'pack_date',
         ],
         'order': 'name',
         'limit': 100,
@@ -349,6 +376,59 @@ class OdooClient {
       location: '',
       container: '',
     );
+  }
+
+  Future<List<Map<String, dynamic>>> getPackageContents(String url, int packageId) async {
+    final contents = await _call(
+      url: url,
+      model: 'stock.quant',
+      method: 'search_read',
+      kwargs: <String, dynamic>{
+        'domain': <List<Object>>[<Object>['package_id', '=', packageId]],
+        'fields': <String>['product_id', 'quantity', 'reserved_quantity', 'product_uom_id'],
+        'order': 'product_id',
+      },
+      errorMessage: 'Impossible de charger le contenu du colis',
+    );
+    final productIds = contents
+        .map((item) => item['product_id'])
+        .whereType<List>()
+        .where((relation) => relation.isNotEmpty && relation.first is num)
+        .map((relation) => (relation.first as num).toInt())
+        .toSet()
+        .toList();
+    if (productIds.isNotEmpty) {
+      final products = await _call(
+        url: url,
+        model: 'product.product',
+        method: 'search_read',
+        kwargs: <String, dynamic>{
+          'domain': <List<Object>>[<Object>['id', 'in', productIds]],
+          'fields': <String>['id', 'barcode', 'default_code', 'uom_id'],
+        },
+        errorMessage: 'Impossible de charger les codes-barres des produits',
+      );
+      final barcodes = <int, String>{
+        for (final product in products)
+          (product['id'] as num).toInt(): (product['barcode'] ?? '').toString().trim(),
+      };
+      for (final item in contents) {
+        final relation = item['product_id'];
+        if (relation is List && relation.isNotEmpty && relation.first is num) {
+          final productId = (relation.first as num).toInt();
+          item['_barcode'] = barcodes[productId] ?? '';
+          final product = products.firstWhere(
+            (value) => (value['id'] as num).toInt() == productId,
+            orElse: () => <String, dynamic>{},
+          );
+          item['_uom_name'] = product['uom_id'] is List &&
+                  (product['uom_id'] as List).length > 1
+              ? product['uom_id'][1].toString()
+              : '';
+        }
+      }
+    }
+    return contents;
   }
 
   Future<void> assignPackageToLines(
@@ -449,6 +529,59 @@ class OdooClient {
       errorMessage: 'Impossible de rechercher le code-barres',
     );
     return result.isEmpty ? null : (result.first['id'] as num).toInt();
+  }
+
+  Future<List<Map<String, dynamic>>> getKitComponents(
+    String url,
+    int productId,
+  ) async {
+    final products = await _call(
+      url: url,
+      model: 'product.product',
+      method: 'search_read',
+      kwargs: <String, dynamic>{
+        'domain': <List<Object>>[
+          <Object>['id', '=', productId],
+        ],
+        'fields': <String>['product_tmpl_id'],
+        'limit': 1,
+      },
+      errorMessage: 'Impossible de charger le produit',
+    );
+    final template = products.isNotEmpty ? products.first['product_tmpl_id'] : null;
+    final templateId = template is List && template.isNotEmpty
+        ? (template[0] as num).toInt()
+        : null;
+    final boms = await _call(
+      url: url,
+      model: 'mrp.bom',
+      method: 'search_read',
+      kwargs: <String, dynamic>{
+        'domain': <Object>[
+          '|',
+          <Object>['product_id', '=', productId],
+          <Object>['product_tmpl_id', '=', templateId ?? 0],
+          <Object>['type', '=', 'phantom'],
+        ],
+        'fields': <String>['id'],
+        'limit': 1,
+      },
+      errorMessage: 'Impossible de rechercher le kit',
+    );
+    if (boms.isEmpty) return <Map<String, dynamic>>[];
+    return _call(
+      url: url,
+      model: 'mrp.bom.line',
+      method: 'search_read',
+      kwargs: <String, dynamic>{
+        'domain': <List<Object>>[
+          <Object>['bom_id', '=', (boms.first['id'] as num).toInt()],
+        ],
+        'fields': <String>['product_id', 'product_qty', 'product_uom_id'],
+        'order': 'sequence, id',
+      },
+      errorMessage: 'Impossible de charger les composants du kit',
+    );
   }
 
   Future<Map<int, List<String>>> getProductScanCodes(

@@ -27,6 +27,7 @@ class _OperationsPageState extends State<OperationsPage> {
   String _query = '';
   Timer? _searchDebounce;
   final Set<String> _stateFilter = <String>{'assigned'};
+  String _packageFilter = 'all';
 
   @override
   void initState() {
@@ -148,6 +149,20 @@ class _OperationsPageState extends State<OperationsPage> {
                     if (selected) { _stateFilter.add('done'); } else { _stateFilter.remove('done'); }
                   }),
                 ),
+                FilterChip(
+                  label: const Text('Colis oui'),
+                  selectedColor: const Color(0xFFB8E5C1),
+                  checkmarkColor: const Color(0xFF216B32),
+                  selected: _packageFilter == 'yes',
+                  onSelected: (selected) => setState(() => _packageFilter = selected ? 'yes' : 'all'),
+                ),
+                FilterChip(
+                  label: const Text('Colis non'),
+                  selectedColor: const Color(0xFFFFC7C2),
+                  checkmarkColor: const Color(0xFF9B2C25),
+                  selected: _packageFilter == 'no',
+                  onSelected: (selected) => setState(() => _packageFilter = selected ? 'no' : 'all'),
+                ),
               ],
             ),
           ),
@@ -186,6 +201,8 @@ class _OperationsPageState extends State<OperationsPage> {
               ? _stateFilter.contains('waiting')
               : _stateFilter.contains(operation.state);
           if (!stateMatches) return false;
+          if (_packageFilter == 'yes' && !operation.hasPackages) return false;
+          if (_packageFilter == 'no' && operation.hasPackages) return false;
           if (_query.isEmpty) return true;
           return operation.reference.toLowerCase().contains(_query) ||
               operation.origin.toLowerCase().contains(_query) ||
@@ -303,6 +320,8 @@ class _OperationCard extends StatelessWidget {
                   text: _formatDate(operation.scheduledDate!),
                 ),
               ],
+              const SizedBox(height: 6),
+              _PackageInfo(hasPackages: operation.hasPackages),
             ],
           ),
         ),
@@ -339,6 +358,21 @@ class _Info extends StatelessWidget {
       ),
     ],
   );
+}
+
+class _PackageInfo extends StatelessWidget {
+  const _PackageInfo({required this.hasPackages});
+  final bool hasPackages;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = hasPackages ? const Color(0xFF247A38) : const Color(0xFFB33A32);
+    return Row(children: <Widget>[
+      Icon(Icons.inventory_2_outlined, size: 17, color: color),
+      const SizedBox(width: 8),
+      Text('Colis : ${hasPackages ? 'Oui' : 'Non'}', style: TextStyle(color: color, fontWeight: FontWeight.w700)),
+    ]);
+  }
 }
 
 class _StateChip extends StatelessWidget {

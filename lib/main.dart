@@ -15,15 +15,15 @@ Future<void> main() async {
   ]);
   final client = OdooClient();
   runApp(
-    OdooPickingApp(
+    GuilminApp(
       loginController: LoginController(client, PreferencesService()),
     ),
   );
 }
 
-class OdooPickingApp extends StatelessWidget {
+class GuilminApp extends StatelessWidget {
   final LoginController loginController;
-  const OdooPickingApp({super.key, required this.loginController});
+  const GuilminApp({super.key, required this.loginController});
   @override
   Widget build(BuildContext context) {
     const navy = Color(0xFF12345B);
@@ -96,6 +96,7 @@ class OdooPickingApp extends StatelessWidget {
         ),
         searchBarTheme: SearchBarThemeData(
           backgroundColor: const WidgetStatePropertyAll(Colors.white),
+          
           elevation: const WidgetStatePropertyAll(0),
           side: const WidgetStatePropertyAll(BorderSide(color: border)),
           shape: WidgetStatePropertyAll(

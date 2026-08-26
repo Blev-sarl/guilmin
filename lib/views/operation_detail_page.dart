@@ -35,7 +35,7 @@ enum _PrintChoice {
     'codes_barres',
   ),
   packages(
-    'Imprimer des colis',
+    'Imprimer code-barre du colis avec contenu',
     'stock.action_report_picking',
     Icons.inventory_2_outlined,
     'colis',
@@ -284,16 +284,39 @@ class _OperationDetailPageState extends State<OperationDetailPage>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
-            const ListTile(title: Text('Impression'), leading: Icon(Icons.print)),
+            Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.onSurface,
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(18),
+                ),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Row(children: [
+                Icon(Icons.print, color: Theme.of(context).colorScheme.surface),
+                const SizedBox(width: 12),
+                Text('Impression', style: TextStyle(color: Theme.of(context).colorScheme.surface, fontWeight: FontWeight.bold, fontSize: 18)),
+              ]),
+            ),
             for (final item in _PrintChoice.values)
               ListTile(
                 enabled: item != _PrintChoice.packages || hasPackages,
-                leading: Icon(
-                  item.icon,
-                  color: item == _PrintChoice.packages && !hasPackages
-                      ? Theme.of(context).disabledColor
-                      : null,
-                ),
+                leading: Row(mainAxisSize: MainAxisSize.min, children: [
+                  if (item == _PrintChoice.operations || item == _PrintChoice.delivery)
+                    const Padding(padding: EdgeInsets.only(right: 6), child: Icon(Icons.picture_as_pdf, color: Colors.red)),
+                  if (item == _PrintChoice.packages)
+                    Container(
+                      margin: const EdgeInsets.only(right: 6),
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.shade700,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: const Text('ZPL', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                    ),
+                  Icon(item.icon, color: item == _PrintChoice.packages && !hasPackages ? Theme.of(context).disabledColor : null),
+                ]),
                 title: Text(item.label),
                 onTap: item == _PrintChoice.packages && !hasPackages
                     ? null
@@ -997,7 +1020,9 @@ class _OperationDetailPageState extends State<OperationDetailPage>
         if (mounted) _message('${line.productName} : +1');
       }
     } catch (error) {
-      if (mounted) _message(error.toString().replaceFirst('Exception: ', ''));
+      if (mounted) {
+        _message(error.toString().replaceFirst('Exception: ', ''));
+      }
     } finally {
       _scanBusy = false;
     }
