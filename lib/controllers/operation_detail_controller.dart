@@ -15,6 +15,18 @@ class OperationDetailController extends ChangeNotifier {
   String? error;
   int? lastScannedLineId;
   final Map<String, int> _scanCodeToProductId = <String, int>{};
+  bool _disposed = false;
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+
+  @override
+  void notifyListeners() {
+    if (!_disposed) super.notifyListeners();
+  }
 
   Future<void> load() async {
     loading = true;

@@ -137,6 +137,41 @@ class OdooClient {
     return result.map(ReceptionType.fromJson).toList(growable: false);
   }
 
+  Future<List<Map<String, dynamic>>> getPurchaseOrders(String url) async {
+    final result = await _call(
+      url: url,
+      model: 'purchase.order',
+      method: 'search_read',
+      kwargs: <String, dynamic>{
+        'domain': <Object>[<Object>['state', '!=', 'cancel']],
+        'fields': <String>['id', 'name', 'partner_id', 'partner_ref', 'date_order', 'date_approve', 'state', 'amount_untaxed', 'amount_tax', 'amount_total', 'currency_id', 'picking_type_id'],
+        'order': 'date_order desc, id desc',
+        'limit': 200,
+        'context': <String, String>{'lang': 'fr_BE'},
+      },
+      errorMessage: 'Impossible de charger les bons de commande',
+    );
+    return result;
+  }
+
+  Future<List<Map<String, dynamic>>> getPurchaseOrderLines(String url, int orderId) {
+    return _call(url: url, model: 'purchase.order.line', method: 'search_read', kwargs: <String, dynamic>{
+      'domain': <Object>[<Object>['order_id', '=', orderId]],
+      'fields': <String>['product_id', 'name', 'product_qty', 'product_uom_id', 'price_unit', 'price_subtotal', 'date_planned'],
+      'order': 'id asc',
+      'context': <String, String>{'lang': 'fr_BE'},
+    }, errorMessage: 'Impossible de charger les lignes du bon de commande');
+  }
+
+  Future<List<Map<String, dynamic>>> getPurchaseOrderDeliveries(String url, int orderId) {
+    return _call(url: url, model: 'stock.picking', method: 'search_read', kwargs: <String, dynamic>{
+      'domain': <Object>[<Object>['purchase_id', '=', orderId]],
+      'fields': <String>['id', 'name', 'state', 'scheduled_date', 'date_done', 'location_dest_id', 'picking_type_id'],
+      'order': 'scheduled_date asc, id asc',
+      'context': <String, String>{'lang': 'fr_BE'},
+    }, errorMessage: 'Impossible de charger les livraisons liées');
+  }
+
   Future<List<StockOperation>> getOperations(
     String url,
     int pickingTypeId,

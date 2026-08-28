@@ -6,6 +6,7 @@ import 'update_dialog.dart';
 import 'widgets/app_version_label.dart';
 import 'print_settings_page.dart';
 import 'packages_page.dart';
+import 'purchase_orders_page.dart';
 
 class DashboardPage extends StatelessWidget {
   const DashboardPage({super.key, required this.controller});
@@ -89,6 +90,7 @@ class DashboardPage extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
+          const SizedBox(height: 8),
           Card(
             child: ListTile(
               leading: const Icon(Icons.inventory_2_outlined, size: 36),
@@ -96,6 +98,16 @@ class DashboardPage extends StatelessWidget {
               subtitle: const Text('Consulter et créer des colis'),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => PackagesPage(client: controller.client, url: controller.url!))),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.receipt_long_outlined, size: 36),
+              title: const Text('Bons de commande', style: TextStyle(fontWeight: FontWeight.bold)),
+              subtitle: const Text('Consulter les bons de commande fournisseurs'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => PurchaseOrdersPage(client: controller.client, url: controller.url!))),
             ),
           ),
         ],
