@@ -34,8 +34,8 @@ class _PrintSettingsPageState extends State<PrintSettingsPage> {
   @override void dispose() { _ip.dispose(); _port.dispose(); _width.dispose(); _height.dispose(); _dpi.dispose(); super.dispose(); }
   @override Widget build(BuildContext context) {
     if (_loading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    return Scaffold(appBar: AppBar(title: const Text('Paramètres d’impression')), body: ListView(padding: const EdgeInsets.all(20), children: [
-      Text('Imprimante Zebra ZPL', style: Theme.of(context).textTheme.titleLarge), const SizedBox(height: 16),
+    return Scaffold(appBar: AppBar(title: const Text('Paramètre d’impression ZPL')), body: ListView(padding: const EdgeInsets.all(20), children: [
+      Text('Paramètre d’impression ZPL', style: Theme.of(context).textTheme.titleLarge), const SizedBox(height: 16),
       TextField(controller: _ip, decoration: const InputDecoration(labelText: 'Adresse IP')), const SizedBox(height: 12),
       TextField(controller: _port, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Port TCP', hintText: '9100')), const SizedBox(height: 12),
       DropdownButtonFormField<String>(initialValue: _template, decoration: const InputDecoration(labelText: 'Modèle ZPL'), items: const [DropdownMenuItem(value: 'normal', child: Text('Normal (2,25 x 1,25)')), DropdownMenuItem(value: 'small', child: Text('Petit (1,25 x 1,00)')), DropdownMenuItem(value: 'alternative', child: Text('Alternative (2,00 x 1,00)')), DropdownMenuItem(value: 'jewelry', child: Text('Bijoux (2,20 x 0,50)')), DropdownMenuItem(value: 'custom', child: Text('Personnalisé'))], onChanged: (value) => setState(() => _template = value ?? 'normal')), const SizedBox(height: 12),

@@ -65,7 +65,9 @@ class ZplPrinterService {
         debugPrintSynchronously(payload.substring(start, end));
       }
       debugPrintSynchronously('===== FIN ZPL =====');
-      socket.add(payload.codeUnits);
+      // ^CI28 attend des données UTF-8. codeUnits ne convient pas aux
+      // caractères accentués dont le code dépasse 255.
+      socket.add(utf8.encode(payload));
       await socket.flush();
     } finally {
       await socket.close();

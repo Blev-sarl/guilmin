@@ -16,6 +16,7 @@ class PackagesPage extends StatefulWidget {
 
 class _PackagesPageState extends State<PackagesPage> {
   final _search = TextEditingController();
+  final _scrollController = ScrollController();
   late Future<List<PackageOption>> _packages;
 
   @override
@@ -30,9 +31,15 @@ class _PackagesPageState extends State<PackagesPage> {
     });
   }
 
+  @override
+  void dispose() {
+    _search.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
   Future<void> _open(PackageOption package) async {
     await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => PackageDetailPage(client: widget.client, url: widget.url, package: package)));
-    if (mounted) _load();
   }
 
   @override
@@ -59,6 +66,7 @@ class _PackagesPageState extends State<PackagesPage> {
               final packages = snapshot.data ?? const <PackageOption>[];
               if (packages.isEmpty) return const Center(child: Text('Aucun colis trouvé'));
               return ListView.builder(
+                controller: _scrollController,
                 padding: const EdgeInsets.only(bottom: 90),
                 itemCount: packages.length,
                 itemBuilder: (_, index) {
@@ -89,6 +97,7 @@ class _PackagesPageState extends State<PackagesPage> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisSize: MainAxisSize.min,
                           children: [
+                            _PackageListInfo(icon: Icons.category_outlined, text: 'Contient ${package.productCount} produit${package.productCount > 1 ? 's' : ''}'),
                             if (package.location.isNotEmpty)
                               _PackageListInfo(icon: Icons.location_on_outlined, text: package.location),
                             if (package.createdAt != null)
@@ -127,6 +136,9 @@ class PackageDetailPage extends StatelessWidget {
       final ip = (printer['ip'] as String).trim();
       if (ip.isEmpty) throw Exception('Configurez d’abord l’imprimante ZPL');
       final contents = await client.getPackageContents(url, package.id);
+      if (contents.isEmpty) {
+        throw Exception('Le colis est vide, aucune impression possible');
+      }
       final zpl = StringBuffer('''^XA
 ^CI28
 ^PW567
@@ -155,6 +167,9 @@ class PackageDetailPage extends StatelessWidget {
 ^FO382,310
 ^A0R,18,18
 ^FDProduit^FS
+^FO382,695
+^A0R,18,18
+^FDContenus^FS
 ''');
       for (final entry in contents.take(7).indexed) {
         final item = entry.$2;
@@ -184,7 +199,7 @@ class PackageDetailPage extends StatelessWidget {
         writeLine();
         zpl.write('^FO275,575\n^A0R,25,25\n^FD${_safe((item['quantity'] ?? 0).toString())}^FS\n^FO245,575\n^A0R,18,18\n^FD${_unitLabel(item)}^FS\n');
         final qrContent = barcode.isEmpty ? package.name : barcode;
-        zpl.write('^FO235,700\n^BQR,2,4\n^FDLA,${_safe(qrContent)}^FS\n^FO145,705\n^A0R,15,15\n^FDContenus^FS\n^XZ');
+        zpl.write('^FO235,700\n^BQR,2,4\n^FDLA,${_safe(qrContent)}^FS\n^FO145,705\n^A0R,15,15\n^FDContenu^FS\n^XZ');
       }
       final service = ZplPrinterService();
       // Supprime les espaces d'indentation avant les commandes ZPL.
@@ -196,7 +211,6 @@ class PackageDetailPage extends StatelessWidget {
           .map((line) => line.trimLeft())
           .join('\n')
           .replaceAll(RegExp(r'&#x[0-9A-Fa-f]+;'), '');
-      await service.saveZplFile(payload, 'colis_blev_${package.name}');
       await service.sendZpl(zpl: payload, ip: ip, port: printer['port'] as int);
       if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Impression colis ZPL Blev envoyée')));
     } catch (error) {
@@ -205,13 +219,8 @@ class PackageDetailPage extends StatelessWidget {
   }
 
   String _unitLabel(Map<String, dynamic> item) {
-    final unit = (item['_uom_name'] ?? '').toString().toLowerCase().trim();
-    if (unit.isEmpty) return 'Unité(s)';
-    if (unit.contains('kg') || unit.contains('kilogram')) return 'kg(s)';
-    if (unit.contains('unit') || unit.contains('unité') || unit == 'u') {
-      return 'Unité(s)';
-    }
-    return unit;
+    final unit = (item['_uom_name'] ?? '').toString().trim();
+    return unit.isEmpty ? 'Unite(s)' : unit;
   }
 
   String _date(DateTime? value) { final date = value ?? DateTime.now(); return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}'; }
@@ -287,7 +296,7 @@ class PackageDetailPage extends StatelessWidget {
           ...items.map((item) {
             final product = item['product_id'] is List ? item['product_id'][1].toString() : 'Produit';
             final quantity = item['quantity'] ?? 0;
-            final unit = item['product_uom_id'] is List ? item['product_uom_id'][1].toString() : '';
+            final unit = (item['_uom_name'] ?? (item['product_uom_id'] is List ? item['product_uom_id'][1] : '')).toString();
             return Card(
               elevation: 0,
               margin: const EdgeInsets.only(bottom: 7),

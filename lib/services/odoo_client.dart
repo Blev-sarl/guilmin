@@ -356,6 +356,31 @@ class OdooClient {
       },
       errorMessage: 'Impossible de charger les colis',
     );
+    if (packages.isNotEmpty) {
+      final packageIds = packages.map((item) => (item['id'] as num).toInt()).toList();
+      final quants = await _call(
+        url: url,
+        model: 'stock.quant',
+        method: 'search_read',
+        kwargs: <String, dynamic>{
+          'domain': <List<Object>>[<Object>['package_id', 'in', packageIds]],
+          'fields': <String>['package_id', 'product_id'],
+          'limit': 5000,
+        },
+        errorMessage: 'Impossible de compter les produits des colis',
+      );
+      final productsByPackage = <int, Set<int>>{};
+      for (final quant in quants) {
+        final pack = quant['package_id'];
+        final product = quant['product_id'];
+        if (pack is List && pack.isNotEmpty && pack.first is num && product is List && product.isNotEmpty && product.first is num) {
+          productsByPackage.putIfAbsent((pack.first as num).toInt(), () => <int>{}).add((product.first as num).toInt());
+        }
+      }
+      for (final item in packages) {
+        item['_product_count'] = productsByPackage[(item['id'] as num).toInt()]?.length ?? 0;
+      }
+    }
     return packages.map(PackageOption.fromJson).toList(growable: false);
   }
 
@@ -405,6 +430,7 @@ class OdooClient {
         kwargs: <String, dynamic>{
           'domain': <List<Object>>[<Object>['id', 'in', productIds]],
           'fields': <String>['id', 'barcode', 'default_code', 'uom_id'],
+          'context': <String, String>{'lang': 'fr_BE'},
         },
         errorMessage: 'Impossible de charger les codes-barres des produits',
       );
