@@ -144,31 +144,33 @@ class PackageDetailPage extends StatelessWidget {
 ^PW567
 ^LL856
 ^LH0,0
-^FO515,25
-^A0R,32,32
+^FO495,45
+^A0R,40,40
 ^FD${_safe(package.name)}^FS
-^FO475,470
-^BY2,3,80
-^BCR,80,Y,N,N
+^FO475,450
+^BY2,3,90
+^BCR,90,Y,N,N
 ^FD${_safe(package.name)}^FS
-^FO435,25
-^A0R,24,24
+^FO465,0
+^A0R,28,28
 ^FDDate d'emballage : ${_date(package.createdAt)}^FS
-^FO117,25
-^GB300,806,2^FS
-^FO365,25
-^GB2,806,2^FS
-      ^FO382,65
-^A0R,18,18
+^FO45,15
+^GB397,826,2^FS
+^FO442,15
+^GB2,826,2^FS
+^FO365,15
+^GB2,826,2^FS
+^FO382,55
+^A0R,22,22
 ^FDCode-barres^FS
-^FO382,560
-^A0R,18,18
+^FO382,555
+^A0R,22,22
 ^FDQuantité^FS
-^FO382,310
-^A0R,18,18
+^FO382,300
+^A0R,22,22
 ^FDProduit^FS
-^FO382,695
-^A0R,18,18
+^FO382,685
+^A0R,22,22
 ^FDContenus^FS
 ''');
       for (final entry in contents.take(7).indexed) {
@@ -176,10 +178,10 @@ class PackageDetailPage extends StatelessWidget {
         final name = item['product_id'] is List ? item['product_id'][1].toString() : 'Produit';
         final barcode = (item['_barcode'] ?? '').toString();
         if (entry.$1 > 0) {
-          zpl.write('^XA\n^CI28\n^PW567\n^LL856\n^LH0,0\n^FO515,25\n^A0R,32,32\n^FD${_safe(package.name)}^FS\n^FO475,470\n^BY2,3,80\n^BCR,80,Y,N,N\n^FD${_safe(package.name)}^FS\n^FO435,25\n^A0R,24,24\n^FDDate d\'emballage : ${_date(package.createdAt)}^FS\n^FO117,25\n^GB300,806,2^FS\n^FO365,25\n^GB2,806,2^FS\n^FO382,65\n^A0R,18,18\n^FDCode-barres^FS\n^FO382,310\n^A0R,18,18\n^FDProduit^FS\n^FO382,560\n^A0R,18,18\n^FDQuantité^FS\n^FO382,695\n^A0R,18,18\n^FDContenus^FS\n');
+          zpl.write('^XA\n^CI28\n^PW567\n^LL856\n^LH0,0\n^FO515,20\n^A0R,40,40\n^FD${_safe(package.name)}^FS\n^FO475,450\n^BY2,3,90\n^BCR,90,Y,N,N\n^FD${_safe(package.name)}^FS\n^FO435,20\n^A0R,28,28\n^FDDate d\'emballage : ${_date(package.createdAt)}^FS\n^FO92,15\n^GB350,826,2^FS\n^FO442,15\n^GB2,826,2^FS\n^FO382,55\n^A0R,22,22\n^FDCode-barres^FS\n^FO382,300\n^A0R,22,22\n^FDProduit^FS\n^FO382,555\n^A0R,22,22\n^FDQuantité^FS\n^FO382,685\n^A0R,22,22\n^FDContenus^FS\n');
         }
         if (barcode.isNotEmpty) {
-          zpl.write('^FO270,65\n^BY1,2,45\n^BCR,45,N,N,N\n^FD${_safe(barcode)}^FS\n^FO210,75\n^A0R,14,14\n^FD${_safe(barcode)}^FS\n');
+          zpl.write('^FO120,35\n^BY2,2,75\n^BCR,75,N,N,N\n^FD${_safe(barcode)}^FS\n^FO45,45\n^A0R,20,20\n^FD${_safe(barcode)}^FS\n');
         }
         final words = _safe(name).split(RegExp(r'\s+'));
         var line = StringBuffer();
@@ -187,7 +189,7 @@ class PackageDetailPage extends StatelessWidget {
         void writeLine() {
           if (line.isEmpty || lineIndex >= 5) return;
           final x = 320 - lineIndex * 25;
-          zpl.write('^FO$x,310\n^A0R,14,14\n^FD$line^FS\n');
+          zpl.write('^FO$x,300\n^A0R,18,18\n^FD$line^FS\n');
           line = StringBuffer();
           lineIndex++;
         }
@@ -197,9 +199,9 @@ class PackageDetailPage extends StatelessWidget {
           line.write(word);
         }
         writeLine();
-        zpl.write('^FO275,575\n^A0R,25,25\n^FD${_safe((item['quantity'] ?? 0).toString())}^FS\n^FO245,575\n^A0R,18,18\n^FD${_unitLabel(item)}^FS\n');
+        zpl.write('^FO275,570\n^A0R,32,32\n^FD${_safe((item['quantity'] ?? 0).toString())}^FS\n^FO235,570\n^A0R,22,22\n^FD${_unitLabel(item)}^FS\n');
         final qrContent = barcode.isEmpty ? package.name : barcode;
-        zpl.write('^FO235,700\n^BQR,2,4\n^FDLA,${_safe(qrContent)}^FS\n^FO145,705\n^A0R,15,15\n^FDContenu^FS\n^XZ');
+        zpl.write('^FO215,610\n^BQR,2,6\n^FDLA,${_safe(qrContent)}^FS\n^FO115,615\n^A0R,19,19\n^FDContenu^FS\n^XZ');
       }
       final service = ZplPrinterService();
       // Supprime les espaces d'indentation avant les commandes ZPL.
