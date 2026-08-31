@@ -189,19 +189,19 @@ class PackageDetailPage extends StatelessWidget {
         void writeLine() {
           if (line.isEmpty || lineIndex >= 5) return;
           final x = 320 - lineIndex * 25;
-          zpl.write('^FO$x,300\n^A0R,18,18\n^FD$line^FS\n');
+          zpl.write('^FO$x,300\n^A0R,22,22\n^FD$line^FS\n');
           line = StringBuffer();
           lineIndex++;
         }
         for (final word in words) {
-          if (line.isNotEmpty && line.length + word.length + 1 > 32) writeLine();
+          if (line.isNotEmpty && line.length + word.length + 1 > 22) writeLine();
           if (line.isNotEmpty) line.write(' ');
           line.write(word);
         }
         writeLine();
         zpl.write('^FO275,570\n^A0R,32,32\n^FD${_safe((item['quantity'] ?? 0).toString())}^FS\n^FO235,570\n^A0R,22,22\n^FD${_unitLabel(item)}^FS\n');
         final qrContent = barcode.isEmpty ? package.name : barcode;
-        zpl.write('^FO215,610\n^BQR,2,6\n^FDLA,${_safe(qrContent)}^FS\n^FO115,615\n^A0R,19,19\n^FDContenu^FS\n^XZ');
+        zpl.write('^FO215,610\n^BQR,2,6\n^FDLA,${_safe(qrContent)}^FS\n^XZ');
       }
       final service = ZplPrinterService();
       // Supprime les espaces d'indentation avant les commandes ZPL.
