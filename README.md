@@ -1,4 +1,4 @@
-# Guilmin
+# Guilmin app
 
 Application Flutter mobile pour le suivi des opérations de stock dans Odoo.
 Guilmin permet aux équipes logistiques de consulter et traiter les transferts,
