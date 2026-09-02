@@ -11,7 +11,6 @@ import '../models/stock_operation.dart';
 import '../services/odoo_client.dart';
 import '../services/barcode_pdf_service.dart';
 import '../services/preferences_service.dart';
-import '../services/zpl_printer_service.dart';
 import 'product_quantity_page.dart';
 import 'widgets/package_picker_dialog.dart';
 import 'packages_page.dart';
