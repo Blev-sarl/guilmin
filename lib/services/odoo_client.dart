@@ -38,9 +38,13 @@ class OdooClient {
     errorMessage: 'Impossible de rechercher les emplacements',
   );
 
-  Future<int> createTransfer({required String url, required int pickingTypeId, required int locationId, String origin = ''}) async {
+  Future<int> createTransfer({required String url, required int pickingTypeId, int? locationId, String origin = ''}) async {
     final result = await _execute(url: url, model: 'stock.picking', method: 'create', args: <Object>[
-      <String, dynamic>{'picking_type_id': pickingTypeId, 'location_id': locationId, if (origin.trim().isNotEmpty) 'origin': origin.trim()},
+      <String, dynamic>{
+        'picking_type_id': pickingTypeId,
+        ...?(locationId == null ? null : <String, dynamic>{'location_id': locationId}),
+        if (origin.trim().isNotEmpty) 'origin': origin.trim(),
+      },
     ], errorMessage: 'Impossible de créer le transfert');
     if (result is! num) throw Exception('Transfert non créé');
     return result.toInt();
@@ -298,6 +302,36 @@ class OdooClient {
     return result.map(StockOperation.fromJson).toList(growable: false);
   }
 
+  Future<String?> getOperationState(String url, int pickingId) async {
+    final result = await _execute(
+      url: url,
+      model: 'stock.picking',
+      method: 'read',
+      args: <Object>[<Object>[pickingId]],
+      kwargs: <String, dynamic>{'fields': <String>['state']},
+      errorMessage: 'Impossible de récupérer l’état du transfert',
+    );
+    if (result is List && result.isNotEmpty && result.first is Map) {
+      return (result.first as Map)['state']?.toString();
+    }
+    return null;
+  }
+
+  Future<StockOperation?> getOperation(String url, int pickingId) async {
+    final rows = await _call(
+      url: url,
+      model: 'stock.picking',
+      method: 'search_read',
+      kwargs: <String, dynamic>{
+        'domain': <Object>[<Object>['id', '=', pickingId]],
+        'fields': <String>['id', 'name', 'purchase_id', 'origin', 'partner_id', 'scheduled_date', 'state'],
+        'limit': 1,
+      },
+      errorMessage: 'Impossible de recharger le transfert',
+    );
+    return rows.isEmpty ? null : StockOperation.fromJson(rows.first);
+  }
+
   Future<List<OperationLine>> getOperationLines(
     String url,
     int operationId,
@@ -476,7 +510,7 @@ class OdooClient {
   }
 
   Future<List<Map<String, dynamic>>> getPackageContents(String url, int packageId) async {
-    final contents = await _call(
+    var contents = await _call(
       url: url,
       model: 'stock.quant',
       method: 'search_read',
@@ -487,6 +521,24 @@ class OdooClient {
       },
       errorMessage: 'Impossible de charger le contenu du colis',
     );
+    // Avant la validation, le contenu peut encore être présent uniquement
+    // dans les lignes de mouvement et pas encore dans stock.quant.
+    if (contents.isEmpty) {
+      contents = await _call(
+        url: url,
+        model: 'stock.move.line',
+        method: 'search_read',
+        kwargs: <String, dynamic>{
+          'domain': <Object>['|',
+            <Object>['package_id', '=', packageId],
+            <Object>['result_package_id', '=', packageId],
+          ],
+          'fields': <String>['product_id', 'quantity', 'product_uom_id'],
+          'order': 'product_id',
+        },
+        errorMessage: 'Impossible de charger les lignes du colis',
+      );
+    }
     final productIds = contents
         .map((item) => item['product_id'])
         .whereType<List>()
@@ -669,6 +721,7 @@ class OdooClient {
         'product_uom': uom.first,
         'location_id': src.first,
         'location_dest_id': dest.first,
+        'procure_method': 'make_to_stock',
       },
     ], errorMessage: 'Impossible d’ajouter le produit au transfert');
     if (createdMove is! num) throw Exception('Odoo n’a pas confirmé l’ajout du produit');

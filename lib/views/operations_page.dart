@@ -73,14 +73,16 @@ class _OperationsPageState extends State<OperationsPage> {
       // La recherche saisie affichera l’erreur éventuelle via Odoo.
     }
     if (!mounted) {
-      locationInput.dispose();
+      WidgetsBinding.instance.addPostFrameCallback((_) => locationInput.dispose());
       return;
     }
     final choice = await showDialog<String>(
       context: context,
-      builder: (context) => StatefulBuilder(builder: (context, setDialogState) => AlertDialog(
+      builder: (context) => StatefulBuilder(builder: (context, setDialogState) {
+        final keyboardVisible = MediaQuery.viewInsetsOf(context).bottom > 0;
+        return AlertDialog(
         title: const Text('Emplacement d’origine'),
-        content: SizedBox(width: 420, child: Column(mainAxisSize: MainAxisSize.min, children: <Widget>[
+        content: SizedBox(width: 420, height: keyboardVisible ? 155 : 300, child: Column(children: <Widget>[
           TextField(
             controller: locationInput,
             autofocus: true,
@@ -97,53 +99,78 @@ class _OperationsPageState extends State<OperationsPage> {
             },
           ),
           if (searchingLocations) const LinearProgressIndicator(),
-          if (suggestions.isNotEmpty) SizedBox(height: 180, child: ListView.builder(itemCount: suggestions.length, itemBuilder: (_, index) {
+          if (suggestions.isNotEmpty) Expanded(child: ListView.builder(
+            shrinkWrap: false,
+            itemCount: suggestions.length,
+            itemBuilder: (_, index) {
             final item = suggestions[index];
-            return ListTile(dense: true, leading: const Icon(Icons.location_on_outlined), title: Text('${item['name'] ?? ''}'), subtitle: Text('${item['barcode'] ?? 'Sans code-barres'}'), onTap: () => Navigator.pop(context, 'id:${item['id']}'));
+            final barcode = item['barcode'];
+            final barcodeLabel = barcode is String && barcode.trim().isNotEmpty ? barcode : 'Sans code-barres';
+            return ListTile(dense: true, leading: const Icon(Icons.location_on_outlined), title: Text('${item['name'] ?? ''}'), subtitle: Text(barcodeLabel), onTap: () => Navigator.pop(context, 'id:${item['id']}'));
           })),
         ])),
         actions: <Widget>[
-          OutlinedButton.icon(
-            onPressed: () => Navigator.pop(context, '__scan__'),
-            icon: const Icon(Icons.qr_code_scanner),
-            label: const Text('Scanner'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, locationInput.text),
-            child: const Text('Rechercher'),
-          ),
+          Column(mainAxisSize: MainAxisSize.min, children: <Widget>[
+            Row(children: <Widget>[
+              Expanded(child: OutlinedButton.icon(
+                onPressed: () => Navigator.pop(context, '__scan__'),
+                icon: const Icon(Icons.qr_code_scanner),
+                label: const Text('Scanner'),
+              )),
+              const SizedBox(width: 8),
+              Expanded(child: FilledButton(
+                onPressed: () async {
+                  final value = locationInput.text.trim();
+                  if (value.length < 2) return;
+                  setDialogState(() => searchingLocations = true);
+                  try {
+                    final found = await widget.client.searchLocations(widget.url, value);
+                    if (context.mounted) setDialogState(() => suggestions = found);
+                  } finally {
+                    if (context.mounted) setDialogState(() => searchingLocations = false);
+                  }
+                },
+                child: const Text('Rechercher'),
+              )),
+            ]),
+            const SizedBox(height: 8),
+            SizedBox(width: double.infinity, child: ElevatedButton(
+              onPressed: () => Navigator.pop(context, '__none__'),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, foregroundColor: Colors.white),
+              child: const Text('Sans emplacement'),
+            )),
+          ]),
         ],
-      )),
+      );
+      }),
     );
     if (!mounted) {
-      locationInput.dispose();
+      WidgetsBinding.instance.addPostFrameCallback((_) => locationInput.dispose());
       return;
     }
     final navigator = Navigator.of(context);
     final barcode = choice == '__scan__'
         ? await navigator.push<String>(MaterialPageRoute<String>(builder: (_) => const CameraScannerPage(
-            title: 'Scanner l’emplacement d’origine',
-            instruction: 'Scannez le QR code de l’emplacement source',
+          title: 'Scanner l’emplacement d’origine',
+          instruction: 'Scannez le code-barres de l’emplacement source',
+          barcodeOnly: true,
           )))
         : choice;
-    locationInput.dispose();
-    if (!mounted || barcode == null || barcode.trim().isEmpty) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) => locationInput.dispose());
+    if (!mounted || barcode == null) return;
+    if (barcode.trim().isEmpty) return;
     final selected = barcode.trim();
-    final locationId = selected.startsWith('id:')
+    final locationId = selected == '__none__' ? null : selected.startsWith('id:')
         ? int.tryParse(selected.substring(3))
         : await widget.client.findLocationByBarcode(widget.url, selected);
     if (!mounted) return;
-    if (locationId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Emplacement d’origine introuvable')));
-      return;
-    }
     final input = TextEditingController();
     final origin = await showDialog<String>(context: context, builder: (context) => AlertDialog(
       title: const Text('Créer un transfert'),
       content: TextField(controller: input, autofocus: true, decoration: const InputDecoration(labelText: 'Référence ou origine (facultatif)')),
       actions: <Widget>[TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')), FilledButton(onPressed: () => Navigator.pop(context, input.text), child: const Text('Créer'))],
     ));
-    input.dispose();
+    WidgetsBinding.instance.addPostFrameCallback((_) => input.dispose());
     if (!mounted || origin == null) return;
     try {
       final transferId = await widget.client.createTransfer(url: widget.url, pickingTypeId: widget.type.id, locationId: locationId, origin: origin);

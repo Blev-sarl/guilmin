@@ -34,7 +34,10 @@ class OperationDetailController extends ChangeNotifier {
     error = null;
     notifyListeners();
     try {
-      lines = await client.getOperationLines(url, operationId);
+      final loadedLines = await client.getOperationLines(url, operationId);
+      lines = loadedLines
+          .where((line) => line.expectedQuantity > 0)
+          .toList(growable: true);
       _scanCodeToProductId.clear();
       final productCodes = await client.getProductScanCodes(
         url,

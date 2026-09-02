@@ -14,6 +14,7 @@ import '../services/preferences_service.dart';
 import '../services/zpl_printer_service.dart';
 import 'product_quantity_page.dart';
 import 'widgets/package_picker_dialog.dart';
+import 'packages_page.dart';
 
 enum _PrintChoice {
   operations(
@@ -99,7 +100,9 @@ class _OperationDetailPageState extends State<OperationDetailPage>
   bool _manualScanVisible = false;
   bool _showTouchKeyboard = false;
   bool _scanBusy = false;
+  String? _pendingCameraValue;
   bool _printing = false;
+  String? _currentState;
   int? _barcodeQuantityOverride;
   bool _validated = false;
 
@@ -153,9 +156,35 @@ class _OperationDetailPageState extends State<OperationDetailPage>
 
   @override
   Widget build(BuildContext context) {
+    final stateLabels = <String, String>{
+      'draft': 'Brouillon',
+      'confirmed': 'En attente',
+      'assigned': 'Prêt',
+      'done': 'Terminé',
+      'cancel': 'Annulé',
+    };
+    final currentState = _currentState ?? widget.operation.state;
+    final stateLabel = stateLabels[currentState] ?? currentState;
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.operation.reference),
+        title: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(widget.operation.reference),
+            Text(
+              stateLabel,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: currentState == 'done'
+                        ? Colors.green
+                        : currentState == 'cancel'
+                            ? Colors.red
+                            : Theme.of(context).colorScheme.primary,
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+          ],
+        ),
         actions: <Widget>[
           IconButton(
             tooltip: 'Imprimer',
@@ -164,7 +193,7 @@ class _OperationDetailPageState extends State<OperationDetailPage>
           ),
           IconButton(
             tooltip: 'Actualiser',
-            onPressed: _controller.load,
+            onPressed: _refreshFromOdoo,
             icon: const Icon(Icons.refresh),
           ),
         ],
@@ -259,28 +288,20 @@ class _OperationDetailPageState extends State<OperationDetailPage>
                   child: OutlinedButton.icon(
                     onPressed: _controller.saving ? null : _markToDo,
                     icon: const Icon(Icons.playlist_add_check),
-                    label: const Text('Marquer à faire'),
+                    style: OutlinedButton.styleFrom(padding: EdgeInsets.zero),
+                    label: const Text('À faire', maxLines: 1, style: TextStyle(fontSize: 9)),
                   ),
                 ),
                 const SizedBox(width: 8),
               ],
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: _controller.saving || _isLocked
-                      ? null
-                      : _toggleManualScan,
-                  icon: const Icon(Icons.add),
-                  label: const Text('Ajouter un produit'),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: OutlinedButton.icon(
                   onPressed: _controller.saving || _isLocked || widget.operation.state == 'draft'
                       ? null
                       : _globalPackage,
                   icon: const Icon(Icons.inventory_2_outlined),
-                  label: const Text('Mettre en colis'),
+                  style: OutlinedButton.styleFrom(padding: EdgeInsets.zero),
+                  label: const Text('Colis', maxLines: 1, style: TextStyle(fontSize: 9)),
                 ),
               ),
               const SizedBox(width: 8),
@@ -288,7 +309,8 @@ class _OperationDetailPageState extends State<OperationDetailPage>
                 child: FilledButton.icon(
                   onPressed: _controller.saving || _isLocked ? null : _validate,
                   icon: const Icon(Icons.check),
-                  label: const Text('Valider'),
+                  style: FilledButton.styleFrom(padding: EdgeInsets.zero),
+                  label: const Text('Valider', maxLines: 1, style: TextStyle(fontSize: 9)),
                 ),
               ),
             ],
@@ -361,6 +383,14 @@ class _OperationDetailPageState extends State<OperationDetailPage>
     if (choice == _PrintChoice.packages) {
       final reports = await widget.client.getPackageReports(widget.url);
       if (!mounted || reports.isEmpty) return;
+      final directZplReport = reports.where((report) {
+        final name = '${report['name'] ?? ''} ${report['report_name'] ?? ''}'.toLowerCase();
+        return name.contains('contenu');
+      }).firstOrNull;
+      if (directZplReport != null) {
+        await _printPackageReportAsZpl(directZplReport['report_name'].toString());
+        return;
+      }
       final preferences = PreferencesService();
       final hiddenReports = await preferences.loadHiddenPackageReports();
       if (!mounted) return;
@@ -493,7 +523,7 @@ class _OperationDetailPageState extends State<OperationDetailPage>
           .map((line) => line.productId)
           .whereType<int>()
           .toSet();
-      final packageIds = _controller.lines
+      final packageIdsForReport = _controller.lines
           .map((line) => line.destinationPackageId)
           .whereType<int>()
           .toSet()
@@ -556,7 +586,7 @@ class _OperationDetailPageState extends State<OperationDetailPage>
         recordIds: choice == _PrintChoice.barcodes
             ? const <int>[]
             : choice == _PrintChoice.packages
-            ? packageIds
+            ? packageIdsForReport
             : <int>[widget.operation.id],
         fileName: '${choice.filePrefix}_${widget.operation.reference}',
         data: labelAction != null && labelAction['data'] is Map
@@ -586,10 +616,34 @@ class _OperationDetailPageState extends State<OperationDetailPage>
       final ip = (printer['ip'] as String).trim();
       if (ip.isEmpty) throw Exception('Configurez d’abord l’imprimante ZPL');
       debugPrint('ZPL: imprimante configurée $ip:${printer['port']}');
+      final packageIds = _controller.lines
+          .map((line) => line.destinationPackageId)
+          .whereType<int>()
+          .toSet()
+          .toList();
+      if (packageIds.isEmpty) throw Exception('Aucun colis associé à ce transfert');
+      final printed = <int>{};
+      for (final line in _controller.lines) {
+        final packageId = line.destinationPackageId;
+        if (packageId == null || !printed.add(packageId)) continue;
+        if (!mounted) return;
+        await PackageDetailPage(
+          client: widget.client,
+          url: widget.url,
+          package: PackageOption(
+            id: packageId,
+            name: line.destinationPackage,
+            location: '',
+            container: '',
+          ),
+        ).printAsZpl(context);
+      }
+      return;
+      /*
       final report = await widget.client.downloadReport(
         url: widget.url,
         reportName: reportName,
-        recordIds: _controller.lines.map((line) => line.destinationPackageId).whereType<int>().toSet().toList(),
+        recordIds: packageIds,
         fileName: 'zpl_${widget.operation.reference}',
       );
       final zplService = ZplPrinterService();
@@ -633,6 +687,7 @@ class _OperationDetailPageState extends State<OperationDetailPage>
       debugPrint('ZPL: confirmation reçue, envoi en cours');
       await zplService.sendZpl(zpl: zpl, ip: ip, port: printer['port'] as int);
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Impression ZPL envoyée')));
+      */
     } catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Impression ZPL impossible : $error')));
     } finally {
@@ -892,6 +947,18 @@ class _OperationDetailPageState extends State<OperationDetailPage>
               ],
             ),
           ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 10,
+            child: Center(
+              child: FilledButton.icon(
+                onPressed: _scanBusy ? null : _confirmCameraScan,
+                icon: const Icon(Icons.qr_code_scanner),
+                label: const Text('Scanner'),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -1033,7 +1100,7 @@ class _OperationDetailPageState extends State<OperationDetailPage>
       }
     }
     if (value == null) return;
-    await _processScannedValue(value);
+    if (mounted) setState(() => _pendingCameraValue = value);
   }
 
   Future<void> _processScannedValue(String value) async {
@@ -1052,6 +1119,20 @@ class _OperationDetailPageState extends State<OperationDetailPage>
       }
     } finally {
       _scanBusy = false;
+    }
+  }
+
+  Future<void> _confirmCameraScan() async {
+    final value = _pendingCameraValue;
+    if (value == null) {
+      _message('Aucun code détecté. Placez le produit dans le cadre.');
+      return;
+    }
+    setState(() => _pendingCameraValue = null);
+    await _processScannedValue(value);
+    if (mounted && _cameraVisible) {
+      await _cameraController.stop();
+      await _cameraController.start();
     }
   }
 
@@ -1190,9 +1271,33 @@ class _OperationDetailPageState extends State<OperationDetailPage>
   Future<void> _markToDo() async {
     try {
       await _controller.markTransferToDo();
-      if (mounted) setState(() {});
+      if (mounted) {
+        final updated = await widget.client.getOperation(widget.url, widget.operation.id);
+        if (!mounted || updated == null) return;
+        Navigator.of(context).pushReplacement(MaterialPageRoute<void>(
+          builder: (_) => OperationDetailPage(
+            client: widget.client,
+            url: widget.url,
+            operation: updated,
+          ),
+        ));
+      }
     } catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString().replaceFirst('Exception: ', ''))));
+    }
+  }
+
+  Future<void> _refreshFromOdoo() async {
+    try {
+      await _controller.load();
+      final state = await widget.client.getOperationState(widget.url, widget.operation.id);
+      if (mounted && state != null) setState(() => _currentState = state);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.toString().replaceFirst('Exception: ', ''))),
+        );
+      }
     }
   }
 

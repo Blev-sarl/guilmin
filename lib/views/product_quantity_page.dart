@@ -200,15 +200,17 @@ class _ProductQuantityPageState extends State<ProductQuantityPage> {
                   child: const Text('+1'),
                 ),
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: FilledButton(
-                  onPressed: saving
-                      ? null
-                      : () => setQuantity(widget.line.expectedQuantity),
-                  child: Text(format(widget.line.expectedQuantity)),
+              if (!widget.draft) ...<Widget>[
+                const SizedBox(width: 8),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: saving
+                        ? null
+                        : () => setQuantity(widget.line.expectedQuantity),
+                    child: Text(format(widget.line.expectedQuantity)),
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
           if (!widget.draft) ...<Widget>[

@@ -3,9 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 class CameraScannerPage extends StatefulWidget {
-  const CameraScannerPage({super.key, this.title = 'Scanner un produit', this.instruction = 'Placez le code dans le cadre'});
+  const CameraScannerPage({super.key, this.title = 'Scanner un produit', this.instruction = 'Placez le code dans le cadre', this.barcodeOnly = false});
   final String title;
   final String instruction;
+  final bool barcodeOnly;
   @override
   State<CameraScannerPage> createState() => _CameraScannerPageState();
 }
@@ -48,6 +49,9 @@ class _CameraScannerPageState extends State<CameraScannerPage> {
     if (detectedValue != null) return;
     String? value;
     for (final barcode in capture.barcodes) {
+      if (widget.barcodeOnly && barcode.format == BarcodeFormat.qrCode) {
+        continue;
+      }
       if (barcode.rawValue?.isNotEmpty == true) {
         value = barcode.rawValue;
         break;
@@ -148,14 +152,14 @@ class _CameraScannerPageState extends State<CameraScannerPage> {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                if (detectedValue != null) ...<Widget>[
-                  const SizedBox(height: 14),
-                  FilledButton.icon(
-                    onPressed: () => Navigator.of(context).pop(detectedValue),
-                    icon: const Icon(Icons.check),
-                    label: const Text('Utiliser ce QR code'),
-                  ),
-                ],
+                const SizedBox(height: 14),
+                FilledButton.icon(
+                  onPressed: detectedValue == null
+                      ? () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Aucun code détecté dans le cadre.')))
+                      : () => Navigator.of(context).pop(detectedValue),
+                  icon: const Icon(Icons.qr_code_scanner),
+                  label: const Text('Scanner'),
+                ),
               ],
             ),
           ),

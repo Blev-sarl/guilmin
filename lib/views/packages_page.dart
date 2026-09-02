@@ -125,12 +125,12 @@ class PackageDetailPage extends StatelessWidget {
   final PackageOption package;
 
   Future<void> _print(BuildContext context) async {
-    await _printBlev(context);
+    await printAsZpl(context);
   }
 
   String _safe(String value) => value.replaceAll(RegExp(r'[\^~]'), ' ').replaceAll('\\', '/');
 
-  Future<void> _printBlev(BuildContext context) async {
+  Future<void> printAsZpl(BuildContext context) async {
     try {
       final printer = await PreferencesService().loadZplPrinter();
       final ip = (printer['ip'] as String).trim();
@@ -177,7 +177,8 @@ class PackageDetailPage extends StatelessWidget {
         final item = entry.$2;
         final name = item['product_id'] is List ? item['product_id'][1].toString() : 'Produit';
         final barcode = (item['_barcode'] ?? '').toString();
-        if (entry.$1 > 0) {
+        // L’en-tête est déjà écrit une seule fois avant la boucle.
+        if (entry.$1 == -1) {
           zpl.write('^XA\n^CI28\n^PW567\n^LL856\n^LH0,0\n^FO515,20\n^A0R,40,40\n^FD${_safe(package.name)}^FS\n^FO475,450\n^BY2,3,90\n^BCR,90,Y,N,N\n^FD${_safe(package.name)}^FS\n^FO435,20\n^A0R,28,28\n^FDDate d\'emballage : ${_date(package.createdAt)}^FS\n^FO92,15\n^GB350,826,2^FS\n^FO442,15\n^GB2,826,2^FS\n^FO382,55\n^A0R,22,22\n^FDCode-barres^FS\n^FO382,300\n^A0R,22,22\n^FDProduit^FS\n^FO382,555\n^A0R,22,22\n^FDQuantité^FS\n^FO382,685\n^A0R,22,22\n^FDContenus^FS\n');
         }
         if (barcode.isNotEmpty) {
