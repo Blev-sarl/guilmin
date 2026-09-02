@@ -11,8 +11,10 @@ class OperationsController extends ChangeNotifier {
   List<StockOperation> operations = <StockOperation>[];
   bool loading = false;
   String? error;
+  bool _disposed = false;
 
   Future<void> load() async {
+    if (_disposed) return;
     loading = true;
     error = null;
     notifyListeners();
@@ -21,8 +23,16 @@ class OperationsController extends ChangeNotifier {
     } catch (exception) {
       error = exception.toString().replaceFirst('Exception: ', '');
     } finally {
-      loading = false;
-      notifyListeners();
+      if (!_disposed) {
+        loading = false;
+        notifyListeners();
+      }
     }
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
   }
 }

@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 class CameraScannerPage extends StatefulWidget {
-  const CameraScannerPage({super.key});
+  const CameraScannerPage({super.key, this.title = 'Scanner un produit', this.instruction = 'Placez le code dans le cadre'});
+  final String title;
+  final String instruction;
   @override
   State<CameraScannerPage> createState() => _CameraScannerPageState();
 }
@@ -13,7 +15,7 @@ class _CameraScannerPageState extends State<CameraScannerPage> {
     detectionSpeed: DetectionSpeed.noDuplicates,
     autoStart: false,
   );
-  bool detected = false;
+  String? detectedValue;
   String? startupError;
 
   @override
@@ -43,7 +45,7 @@ class _CameraScannerPageState extends State<CameraScannerPage> {
   }
 
   void onDetect(BarcodeCapture capture) {
-    if (detected) return;
+    if (detectedValue != null) return;
     String? value;
     for (final barcode in capture.barcodes) {
       if (barcode.rawValue?.isNotEmpty == true) {
@@ -52,9 +54,9 @@ class _CameraScannerPageState extends State<CameraScannerPage> {
       }
     }
     if (value == null) return;
-    detected = true;
-    if (mounted) Navigator.of(context).pop(value);
+    if (mounted) setState(() => detectedValue = value);
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -65,7 +67,7 @@ class _CameraScannerPageState extends State<CameraScannerPage> {
         defaultTargetPlatform == TargetPlatform.macOS;
     if (!supported) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Scanner un produit')),
+        appBar: AppBar(title: Text(widget.title)),
         body: const Center(
           child: Padding(
             padding: EdgeInsets.all(24),
@@ -79,7 +81,7 @@ class _CameraScannerPageState extends State<CameraScannerPage> {
     }
     if (startupError != null) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Scanner un produit')),
+        appBar: AppBar(title: Text(widget.title)),
         body: _CameraError(
           message: startupError!,
           onRetry: () {
@@ -92,7 +94,7 @@ class _CameraScannerPageState extends State<CameraScannerPage> {
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        title: const Text('Scanner un produit'),
+        title: Text(widget.title),
         actions: <Widget>[
           IconButton(
             tooltip: 'Flash',
@@ -128,18 +130,33 @@ class _CameraScannerPageState extends State<CameraScannerPage> {
               ),
             ),
           ),
-          const Positioned(
+          Positioned(
             left: 24,
             right: 24,
-            bottom: 42,
-            child: Text(
-              'Placez le code-barres ou la référence dans le cadre',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-              ),
+            bottom: 32,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Text(
+                  detectedValue == null
+                      ? widget.instruction
+                      : 'QR code détecté. Appuyez sur volume bas pour confirmer.',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (detectedValue != null) ...<Widget>[
+                  const SizedBox(height: 14),
+                  FilledButton.icon(
+                    onPressed: () => Navigator.of(context).pop(detectedValue),
+                    icon: const Icon(Icons.check),
+                    label: const Text('Utiliser ce QR code'),
+                  ),
+                ],
+              ],
             ),
           ),
         ],

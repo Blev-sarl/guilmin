@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../controllers/login_controller.dart';
 import 'dashboard_page.dart';
+import 'camera_scanner_page.dart';
 import 'widgets/app_version_label.dart';
 
 class LoginPage extends StatefulWidget {
@@ -65,6 +67,42 @@ class _LoginPageState extends State<LoginPage> {
         ),
       );
     }
+  }
+
+  Future<void> _scanOdooQrCode() async {
+    final value = await Navigator.of(context).push<String>(
+      MaterialPageRoute<String>(
+        builder: (_) => const CameraScannerPage(
+          title: 'Connexion Odoo par QR code',
+          instruction: 'Placez le QR code Odoo dans le cadre',
+        ),
+      ),
+    );
+    if (!mounted || value == null) return;
+    Map<String, dynamic>? data;
+    try {
+      final decoded = jsonDecode(value);
+      if (decoded is Map) data = Map<String, dynamic>.from(decoded);
+    } catch (_) {
+      final uri = Uri.tryParse(value);
+      if (uri != null && uri.queryParameters.isNotEmpty) data = uri.queryParameters;
+    }
+    final url = data?['url'] ?? data?['odoo_url'] ?? data?['host'];
+    final db = data?['db'] ?? data?['database'];
+    final email = data?['email'] ?? data?['login'] ?? data?['username'];
+    final password = data?['password'] ?? data?['passwd'];
+    if ([url, db, email, password].any((item) => item == null || item.toString().isEmpty)) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('QR code Odoo non reconnu')));
+      return;
+    }
+    setState(() {
+      _url.text = url.toString();
+      _database.text = db.toString();
+      _email.text = email.toString();
+      _password.text = password.toString();
+      _remember = true;
+    });
+    await _submit();
   }
 
   @override
@@ -167,6 +205,12 @@ class _LoginPageState extends State<LoginPage> {
                               ? 'Connexion…'
                               : 'Se connecter',
                         ),
+                      ),
+                      const SizedBox(height: 10),
+                      OutlinedButton.icon(
+                        onPressed: widget.controller.loading ? null : _scanOdooQrCode,
+                        icon: const Icon(Icons.qr_code_scanner),
+                        label: const Text('Connexion par QR code Odoo'),
                       ),
                     ],
                   ),

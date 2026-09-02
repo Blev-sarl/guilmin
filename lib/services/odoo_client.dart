@@ -11,7 +11,40 @@ import '../models/user.dart';
 
 class OdooClient {
   String? _cookie;
+  final Map<String, ({DateTime time, List<Map<String, dynamic>> data})> _inventoryCache = {};
   String _baseUrl(String url) => url.trim().replaceFirst(RegExp(r'/+$'), '');
+
+  Future<int?> findLocationByBarcode(String url, String barcode) async {
+    final result = await _call(url: url, model: 'stock.location', method: 'search_read', kwargs: <String, dynamic>{
+      'domain': <Object>[<Object>['barcode', '=', barcode]],
+      'fields': <String>['id'],
+      'limit': 1,
+    }, errorMessage: 'Emplacement introuvable');
+    return result.isEmpty ? null : (result.first['id'] as num).toInt();
+  }
+
+  Future<List<Map<String, dynamic>>> searchLocations(String url, String query) => _call(
+    url: url,
+    model: 'stock.location',
+    method: 'search_read',
+    kwargs: <String, dynamic>{
+      'domain': query.trim().isEmpty
+          ? <Object>[]
+          : <Object>['|', <Object>['name', 'ilike', query], <Object>['barcode', 'ilike', query]],
+      'fields': <String>['id', 'name', 'barcode'],
+      'limit': 20,
+      'order': 'complete_name, name',
+    },
+    errorMessage: 'Impossible de rechercher les emplacements',
+  );
+
+  Future<int> createTransfer({required String url, required int pickingTypeId, required int locationId, String origin = ''}) async {
+    final result = await _execute(url: url, model: 'stock.picking', method: 'create', args: <Object>[
+      <String, dynamic>{'picking_type_id': pickingTypeId, 'location_id': locationId, if (origin.trim().isNotEmpty) 'origin': origin.trim()},
+    ], errorMessage: 'Impossible de créer le transfert');
+    if (result is! num) throw Exception('Transfert non créé');
+    return result.toInt();
+  }
 
   Future<File> downloadReport({
     required String url,
@@ -289,6 +322,7 @@ class OdooClient {
           'move_line_ids',
         ],
         'order': 'sequence, id',
+        'context': <String, String>{'lang': 'fr_BE'},
       },
       errorMessage: 'Impossible de charger les lignes de l’opération',
     );
@@ -311,6 +345,7 @@ class OdooClient {
           'result_package_id',
           'result_package_dest_name',
         ],
+        'context': <String, String>{'lang': 'fr_BE'},
       },
       errorMessage: 'Impossible de charger le détail des colis',
     );
@@ -339,10 +374,12 @@ class OdooClient {
         item['_line_id'] = detail['id'];
         item['_move_id'] = moveId;
         item['_move_line_ids'] = <dynamic>[detail['id']];
-        item['_done_quantity'] = detail['picked'] == true ? quantity : 0;
+        // Odoo peut renseigner quantity sans positionner picked (notamment
+        // après une validation directe d’un brouillon). La quantité réalisée
+        // doit donc être lue directement depuis quantity.
+        item['_done_quantity'] = quantity;
         // Odoo peut répartir un mouvement en plusieurs lignes (scannée et
         // restante). Chaque ligne doit afficher sa propre quantité.
-        item['product_uom_qty'] = quantity;
         item['_unit'] = _relationName(detail['product_uom_id']);
         item['_source_package'] = _relationName(detail['package_id']);
         item['_destination_package'] = _relationName(
@@ -573,6 +610,20 @@ class OdooClient {
     );
   }
 
+  Future<void> incrementMoveDemand(String url, int moveId, double quantity) async {
+    await _execute(
+      url: url,
+      model: 'stock.move',
+      method: 'write',
+      args: <Object>[<int>[moveId], <String, Object>{'product_uom_qty': quantity + 1}],
+      errorMessage: 'Impossible d’incrémenter la quantité demandée',
+    );
+  }
+
+  Future<void> setMoveDemand(String url, int moveId, double quantity) => _execute(url: url, model: 'stock.move', method: 'write', args: <Object>[<int>[moveId], <String, Object>{'product_uom_qty': quantity}], errorMessage: 'Impossible de modifier la quantité demandée');
+
+  Future<void> deleteDraftMove(String url, int moveId) => _execute(url: url, model: 'stock.move', method: 'unlink', args: <Object>[<int>[moveId]], errorMessage: 'Impossible de supprimer le produit du brouillon');
+
   Future<int?> findProductByBarcode(String url, String barcode) async {
     final result = await _call(
       url: url,
@@ -590,6 +641,37 @@ class OdooClient {
       errorMessage: 'Impossible de rechercher le code-barres',
     );
     return result.isEmpty ? null : (result.first['id'] as num).toInt();
+  }
+
+  Future<List<Map<String, dynamic>>> getInventoryProducts(String url, {String query = ''}) async {
+    final key = '$url|${query.trim().toLowerCase()}';
+    final cached = _inventoryCache[key];
+    if (cached != null && DateTime.now().difference(cached.time) < const Duration(seconds: 10)) return cached.data;
+    final data = await _call(url: url, model: 'product.product', method: 'search_read', kwargs: <String, dynamic>{'domain': query.trim().isEmpty ? <Object>[] : <Object>['|', '|', <Object>['name', 'ilike', query], <Object>['default_code', 'ilike', query], <Object>['barcode', 'ilike', query]], 'fields': <String>['id', 'name', 'default_code', 'barcode', 'list_price', 'qty_available', 'uom_id'], 'limit': 500, 'order': 'name', 'context': <String, String>{'lang': 'fr_BE'}}, errorMessage: 'Impossible de charger l’inventaire');
+    _inventoryCache[key] = (time: DateTime.now(), data: data);
+    return data;
+  }
+  Future<Map<String,dynamic>> getProductDetails(String url,int id) async { final r=await _call(url:url,model:'product.product',method:'search_read',kwargs:<String,dynamic>{'domain':<Object>[<Object>['id','=',id]],'fields':<String>['name','default_code','barcode','list_price','standard_price','qty_available','uom_id','type','sale_ok','purchase_ok'],'limit':1,'context':<String,String>{'lang':'fr_BE'}},errorMessage:'Impossible de charger le produit'); if(r.isEmpty) throw Exception('Produit introuvable'); return r.first; }
+  Future<List<Map<String,dynamic>>> getProductLocations(String url, int productId) => _call(url:url, model:'stock.quant', method:'search_read', kwargs:<String,dynamic>{'domain':<Object>[<Object>['product_id','=',productId],<Object>['quantity','>',0],<Object>['location_id.usage','=','internal']], 'fields':<String>['location_id','quantity','reserved_quantity','product_uom_id'], 'order':'location_id'}, errorMessage:'Impossible de charger les emplacements');
+
+  Future<void> addProductToDraftTransfer({required String url, required int pickingId, required int productId, required double quantity}) async {
+    final p = await _call(url: url, model: 'stock.picking', method: 'search_read', kwargs: <String, dynamic>{'domain': <Object>[<Object>['id', '=', pickingId]], 'fields': <String>['location_id', 'location_dest_id', 'picking_type_id']}, errorMessage: 'Impossible de charger le transfert');
+    final product = await _call(url: url, model: 'product.product', method: 'search_read', kwargs: <String, dynamic>{'domain': <Object>[<Object>['id', '=', productId]], 'fields': <String>['name', 'uom_id']}, errorMessage: 'Impossible de charger le produit');
+    if (p.isEmpty || product.isEmpty) throw Exception('Transfert ou produit introuvable');
+    final src = p.first['location_id']; final dest = p.first['location_dest_id']; final uom = product.first['uom_id'];
+    if (src is! List || dest is! List || uom is! List) throw Exception('Emplacements invalides');
+    final createdMove = await _execute(url: url, model: 'stock.move', method: 'create', args: <Object>[
+      <String, dynamic>{
+        'picking_id': pickingId,
+        'picking_type_id': (p.first['picking_type_id'] as List).first,
+        'product_id': productId,
+        'product_uom_qty': quantity,
+        'product_uom': uom.first,
+        'location_id': src.first,
+        'location_dest_id': dest.first,
+      },
+    ], errorMessage: 'Impossible d’ajouter le produit au transfert');
+    if (createdMove is! num) throw Exception('Odoo n’a pas confirmé l’ajout du produit');
   }
 
   Future<List<Map<String, dynamic>>> getKitComponents(
@@ -795,6 +877,34 @@ class OdooClient {
       ],
       errorMessage: 'Impossible de valider l’opération',
     );
+  }
+
+  Future<void> markTransferToDo(String url, int operationId) async {
+    await _execute(
+      url: url,
+      model: 'stock.picking',
+      method: 'action_confirm',
+      args: <Object>[<int>[operationId]],
+      errorMessage: 'Impossible de marquer le transfert à faire',
+    );
+    await _execute(
+      url: url,
+      model: 'stock.picking',
+      method: 'action_assign',
+      args: <Object>[<int>[operationId]],
+      errorMessage: 'Impossible de réserver le transfert',
+    );
+    final lines = await _call(url: url, model: 'stock.move.line', method: 'search_read', kwargs: <String, dynamic>{
+      'domain': <Object>[<Object>['picking_id', '=', operationId]],
+      'fields': <String>['id'],
+    }, errorMessage: 'Impossible de préparer les lignes du transfert');
+    final ids = lines.map((line) => (line['id'] as num).toInt()).toList();
+    if (ids.isNotEmpty) {
+      await _execute(url: url, model: 'stock.move.line', method: 'write', args: <Object>[
+        ids,
+        <String, Object>{'quantity': 0, 'picked': false},
+      ], errorMessage: 'Impossible de remettre la quantité traitée à zéro');
+    }
   }
 
   Future<void> processValidationAction(

@@ -11,6 +11,7 @@ class ProductQuantityPage extends StatefulWidget {
     required this.operation,
     required this.line,
     required this.onConfirm,
+    this.draft = false,
     required this.loadPackages,
     required this.onPackage,
     required this.createPackage,
@@ -18,6 +19,7 @@ class ProductQuantityPage extends StatefulWidget {
   final StockOperation operation;
   final OperationLine line;
   final Future<void> Function(double) onConfirm;
+  final bool draft;
   final Future<List<PackageOption>> Function(String query) loadPackages;
   final Future<void> Function(PackageOption? package, bool source) onPackage;
   final Future<PackageOption> Function(String name) createPackage;
@@ -33,7 +35,7 @@ class _ProductQuantityPageState extends State<ProductQuantityPage> {
   @override
   void initState() {
     super.initState();
-    quantity = widget.line.doneQuantity;
+    quantity = widget.draft ? widget.line.expectedQuantity : widget.line.doneQuantity;
     input = TextEditingController(text: format(quantity));
   }
 
@@ -44,7 +46,9 @@ class _ProductQuantityPageState extends State<ProductQuantityPage> {
   }
 
   void setQuantity(double value) {
-    quantity = value.clamp(0, widget.line.expectedQuantity).toDouble();
+    quantity = widget.draft
+        ? value.clamp(0, 999999).toDouble()
+        : value.clamp(0, widget.line.expectedQuantity).toDouble();
     input.text = format(quantity);
     input.selection = TextSelection.collapsed(offset: input.text.length);
     setState(() {});
@@ -52,7 +56,9 @@ class _ProductQuantityPageState extends State<ProductQuantityPage> {
 
   Future<void> confirm() async {
     quantity = double.tryParse(input.text.replaceFirst(',', '.')) ?? quantity;
-    quantity = quantity.clamp(0, widget.line.expectedQuantity).toDouble();
+    quantity = widget.draft
+        ? quantity.clamp(0, 999999).toDouble()
+        : quantity.clamp(0, widget.line.expectedQuantity).toDouble();
     setState(() => saving = true);
     try {
       await widget.onConfirm(quantity);
@@ -149,8 +155,8 @@ class _ProductQuantityPageState extends State<ProductQuantityPage> {
                     FilteringTextInputFormatter.allow(RegExp(r'[0-9,.]')),
                   ],
                   style: Theme.of(context).textTheme.headlineMedium,
-                  decoration: const InputDecoration(
-                    labelText: 'Quantité traitée',
+                  decoration: InputDecoration(
+                    labelText: widget.draft ? 'Quantité demandée' : 'Quantité traitée',
                   ),
                   onChanged: (value) => quantity =
                       double.tryParse(value.replaceFirst(',', '.')) ?? quantity,
@@ -205,6 +211,7 @@ class _ProductQuantityPageState extends State<ProductQuantityPage> {
               ),
             ],
           ),
+          if (!widget.draft) ...<Widget>[
           const SizedBox(height: 24),
           _Field(
             icon: Icons.location_on_outlined,
@@ -231,6 +238,7 @@ class _ProductQuantityPageState extends State<ProductQuantityPage> {
             label: 'Colis du conteneur de destination',
             value: widget.line.destinationContainer,
           ),
+          ],
         ],
       ),
       bottomNavigationBar: SafeArea(

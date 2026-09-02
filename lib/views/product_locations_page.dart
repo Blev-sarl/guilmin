@@ -1,0 +1,7 @@
+import 'package:flutter/material.dart';
+import '../services/odoo_client.dart';
+class ProductLocationsPage extends StatelessWidget {
+  const ProductLocationsPage({super.key, required this.client, required this.url, required this.productId, required this.productName});
+  final OdooClient client; final String url; final int productId; final String productName;
+  @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('Emplacements')), body: FutureBuilder<List<Map<String,dynamic>>>(future: client.getProductLocations(url, productId), builder: (context, snapshot) { if (!snapshot.hasData) return const Center(child: CircularProgressIndicator()); final rows=snapshot.data!; return ListView(padding: const EdgeInsets.all(16), children: [Card(child: Padding(padding: const EdgeInsets.all(18), child: Row(children: [const Icon(Icons.inventory_2_outlined, size: 32), const SizedBox(width: 12), Expanded(child: Text(productName, style: const TextStyle(fontWeight: FontWeight.bold)))]))), const SizedBox(height: 12), ...rows.map((row) { final loc=row['location_id'] is List ? row['location_id'][1] : 'Emplacement'; final u=row['product_uom_id'] is List ? row['product_uom_id'][1] : 'Unités'; return Card(margin: const EdgeInsets.only(bottom: 10), child: ListTile(leading: const Icon(Icons.location_on_outlined), title: Text('$loc'), subtitle: Text('Réservé : ${row['reserved_quantity'] ?? 0} $u'), trailing: Text('${row['quantity'] ?? 0} $u', style: const TextStyle(fontWeight: FontWeight.bold)))); })]); }));
+}

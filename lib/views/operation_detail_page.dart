@@ -86,7 +86,7 @@ class OperationDetailPage extends StatefulWidget {
 }
 
 class _OperationDetailPageState extends State<OperationDetailPage>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late final OperationDetailController _controller;
   final MobileScannerController _cameraController = MobileScannerController(
     detectionSpeed: DetectionSpeed.noDuplicates,
@@ -110,6 +110,7 @@ class _OperationDetailPageState extends State<OperationDetailPage>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _completionBlinkController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 700),
@@ -120,10 +121,18 @@ class _OperationDetailPageState extends State<OperationDetailPage>
       widget.client,
       widget.url,
       widget.operation.id,
+      isDraft: widget.operation.state == 'draft',
     )..addListener(_refresh);
     _controller.load();
     _loadPdaKeyboardPreference();
     _restoreLastScanMode();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      _controller.load();
+    }
   }
 
   void _refresh() {
@@ -132,6 +141,7 @@ class _OperationDetailPageState extends State<OperationDetailPage>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _completionBlinkController.dispose();
     _cameraController.dispose();
     _manualScanController.dispose();
@@ -244,9 +254,21 @@ class _OperationDetailPageState extends State<OperationDetailPage>
           padding: const EdgeInsets.all(8),
           child: Row(
             children: <Widget>[
+              if (widget.operation.state == 'draft') ...<Widget>[
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _controller.saving ? null : _markToDo,
+                    icon: const Icon(Icons.playlist_add_check),
+                    label: const Text('Marquer à faire'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: _controller.saving || _isLocked ? null : _toggleManualScan,
+                  onPressed: _controller.saving || _isLocked
+                      ? null
+                      : _toggleManualScan,
                   icon: const Icon(Icons.add),
                   label: const Text('Ajouter un produit'),
                 ),
@@ -254,7 +276,9 @@ class _OperationDetailPageState extends State<OperationDetailPage>
               const SizedBox(width: 8),
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: _controller.saving || _isLocked ? null : _globalPackage,
+                  onPressed: _controller.saving || _isLocked || widget.operation.state == 'draft'
+                      ? null
+                      : _globalPackage,
                   icon: const Icon(Icons.inventory_2_outlined),
                   label: const Text('Mettre en colis'),
                 ),
@@ -744,11 +768,14 @@ class _OperationDetailPageState extends State<OperationDetailPage>
           final line = _controller.lines[index];
           return _ProductLineCard(
             line: line,
+            draft: widget.operation.state == 'draft',
             highlighted: _controller.lastScannedLineId == line.id,
             enabled: !_controller.saving && !_isLocked,
             onSetQuantity: (quantity) =>
-                _controller.setQuantity(line.id, quantity),
-            onEdit: () => _editQuantity(line),
+                widget.operation.state == 'draft'
+                    ? _controller.setDemand(line.id, quantity)
+                    : _controller.setQuantity(line.id, quantity),
+            onEdit: () => _editQuantity(line, draft: widget.operation.state == 'draft'),
           );
         },
       ),
@@ -1028,14 +1055,19 @@ class _OperationDetailPageState extends State<OperationDetailPage>
     }
   }
 
-  Future<void> _editQuantity(OperationLine line) async {
+  Future<void> _editQuantity(OperationLine line, {bool draft = false}) async {
     final result = await Navigator.of(context).push<String>(
       MaterialPageRoute<String>(
         builder: (_) => ProductQuantityPage(
           operation: widget.operation,
           line: line,
+          draft: draft,
           onConfirm: (quantity) async {
-            await _controller.setQuantity(line.id, quantity);
+            if (draft) {
+              await _controller.setDemand(line.id, quantity);
+            } else {
+              await _controller.setQuantity(line.id, quantity);
+            }
             if (_controller.error != null) {
               throw Exception(_controller.error);
             }
@@ -1155,6 +1187,15 @@ class _OperationDetailPageState extends State<OperationDetailPage>
     }
   }
 
+  Future<void> _markToDo() async {
+    try {
+      await _controller.markTransferToDo();
+      if (mounted) setState(() {});
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString().replaceFirst('Exception: ', ''))));
+    }
+  }
+
   Future<void> _validate() async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -1201,12 +1242,14 @@ class _OperationDetailPageState extends State<OperationDetailPage>
 class _ProductLineCard extends StatelessWidget {
   const _ProductLineCard({
     required this.line,
+    required this.draft,
     required this.highlighted,
     required this.enabled,
     required this.onSetQuantity,
     required this.onEdit,
   });
   final OperationLine line;
+  final bool draft;
   final bool highlighted;
   final bool enabled;
   final ValueChanged<double> onSetQuantity;
@@ -1214,6 +1257,8 @@ class _ProductLineCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final quantity = draft ? line.expectedQuantity : line.doneQuantity;
+    final displayedDoneQuantity = draft ? 0.0 : line.doneQuantity;
     final reference =
         RegExp(r'^\[([^]]+)\]').firstMatch(line.productName)?.group(1) ?? '';
     return AnimatedContainer(
@@ -1285,7 +1330,7 @@ class _ProductLineCard extends StatelessWidget {
               ),
             ],
           ),
-          if (line.destinationPackage.isNotEmpty) ...<Widget>[
+          if (!draft && line.destinationPackage.isNotEmpty) ...<Widget>[
             const SizedBox(height: 7),
             Row(
               children: <Widget>[
@@ -1308,7 +1353,7 @@ class _ProductLineCard extends StatelessWidget {
           Row(
             children: <Widget>[
               Text(
-                _quantity(line.doneQuantity),
+                _quantity(displayedDoneQuantity),
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                   fontWeight: FontWeight.bold,
                 ),
@@ -1328,7 +1373,7 @@ class _ProductLineCard extends StatelessWidget {
             children: <Widget>[
               Expanded(
                 child: FilledButton.tonal(
-                  onPressed: enabled && line.doneQuantity > 0
+                  onPressed: enabled && quantity > 0
                       ? () => onSetQuantity(0)
                       : null,
                   child: const Text('0'),
@@ -1337,8 +1382,8 @@ class _ProductLineCard extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: FilledButton.tonal(
-                  onPressed: enabled && line.doneQuantity > 0
-                      ? () => onSetQuantity(line.doneQuantity - 1)
+                  onPressed: enabled && quantity > 0
+                      ? () => onSetQuantity(quantity - 1)
                       : null,
                   child: const Text('-1'),
                 ),
@@ -1347,22 +1392,23 @@ class _ProductLineCard extends StatelessWidget {
               Expanded(
                 child: FilledButton.tonal(
                   onPressed:
-                      enabled && line.doneQuantity < line.expectedQuantity
-                      ? () => onSetQuantity(line.doneQuantity + 1)
+                    enabled
+                      ? () => onSetQuantity(quantity + 1)
                       : null,
                   child: const Text('+1'),
                 ),
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: FilledButton(
-                  onPressed:
-                      enabled && line.doneQuantity < line.expectedQuantity
-                      ? () => onSetQuantity(line.expectedQuantity)
-                      : null,
-                  child: Text(_quantity(line.expectedQuantity)),
+              if (!draft) ...<Widget>[
+                const SizedBox(width: 8),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: enabled
+                        ? () => onSetQuantity(line.expectedQuantity)
+                        : null,
+                    child: Text(_quantity(line.expectedQuantity)),
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
         ],

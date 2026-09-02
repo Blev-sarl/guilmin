@@ -60,7 +60,7 @@ class OperationLine {
           (json['quantity'] as num?)?.toDouble() ??
           0,
       expectedQuantity: (json['product_uom_qty'] as num?)?.toDouble() ?? 0,
-      unit: moveUnit.isEmpty ? fallbackUnit : moveUnit,
+      unit: _unitInFrench(moveUnit.isEmpty ? fallbackUnit : moveUnit),
       moveLineIds:
           (json['_move_line_ids'] as List<dynamic>? ?? const <dynamic>[])
               .map((id) => (id as num).toInt())
@@ -72,7 +72,19 @@ class OperationLine {
     );
   }
 
-  OperationLine copyWith({double? doneQuantity}) => OperationLine(
+  static String _unitInFrench(String value) {
+    switch (value.trim().toLowerCase()) {
+      case 'units':
+      case 'unit':
+      case 'unit(s)':
+      case 'unidades':
+        return 'Unités';
+      default:
+        return value;
+    }
+  }
+
+  OperationLine copyWith({double? doneQuantity, double? expectedQuantity}) => OperationLine(
     id: id,
     moveId: moveId,
     productId: productId,
@@ -80,7 +92,7 @@ class OperationLine {
     description: description,
     destination: destination,
     doneQuantity: doneQuantity ?? this.doneQuantity,
-    expectedQuantity: expectedQuantity,
+    expectedQuantity: expectedQuantity ?? this.expectedQuantity,
     unit: unit,
     moveLineIds: moveLineIds,
     sourcePackage: sourcePackage,

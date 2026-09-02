@@ -6,6 +6,7 @@ import '../models/reception_type.dart';
 import '../models/stock_operation.dart';
 import '../services/odoo_client.dart';
 import 'operation_detail_page.dart';
+import 'camera_scanner_page.dart';
 
 class OperationsPage extends StatefulWidget {
   const OperationsPage({
@@ -13,10 +14,12 @@ class OperationsPage extends StatefulWidget {
     required this.client,
     required this.url,
     required this.type,
+    this.draftOnly = false,
   });
   final OdooClient client;
   final String url;
   final ReceptionType type;
+  final bool draftOnly;
 
   @override
   State<OperationsPage> createState() => _OperationsPageState();
@@ -25,6 +28,7 @@ class OperationsPage extends StatefulWidget {
 class _OperationsPageState extends State<OperationsPage> {
   late final OperationsController _controller;
   String _query = '';
+  final _searchController = TextEditingController();
   Timer? _searchDebounce;
   final Set<String> _stateFilter = <String>{'assigned'};
   String _packageFilter = 'all';
@@ -44,9 +48,123 @@ class _OperationsPageState extends State<OperationsPage> {
     if (mounted) setState(() {});
   }
 
+  Future<void> _scanTransferQrCode() async {
+    final value = await Navigator.of(context).push<String>(
+      MaterialPageRoute<String>(
+        builder: (_) => const CameraScannerPage(
+          title: 'Scanner un transfert',
+          instruction: 'Placez le QR code du transfert dans le cadre',
+        ),
+      ),
+    );
+    if (!mounted || value == null || value.trim().isEmpty) return;
+    final query = value.trim();
+    _searchController.text = query;
+    setState(() => _query = query.toLowerCase());
+  }
+
+  Future<void> _createTransfer() async {
+    final locationInput = TextEditingController();
+    List<Map<String, dynamic>> suggestions = <Map<String, dynamic>>[];
+    bool searchingLocations = false;
+    try {
+      suggestions = await widget.client.searchLocations(widget.url, '');
+    } catch (_) {
+      // La recherche saisie affichera l’erreur éventuelle via Odoo.
+    }
+    if (!mounted) {
+      locationInput.dispose();
+      return;
+    }
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (context) => StatefulBuilder(builder: (context, setDialogState) => AlertDialog(
+        title: const Text('Emplacement d’origine'),
+        content: SizedBox(width: 420, child: Column(mainAxisSize: MainAxisSize.min, children: <Widget>[
+          TextField(
+            controller: locationInput,
+            autofocus: true,
+            decoration: const InputDecoration(labelText: 'Rechercher ou saisir le code', prefixIcon: Icon(Icons.location_on_outlined)),
+            onChanged: (value) async {
+              if (value.trim().length < 2) { setDialogState(() => suggestions = <Map<String, dynamic>>[]); return; }
+              setDialogState(() => searchingLocations = true);
+              try {
+                final found = await widget.client.searchLocations(widget.url, value.trim());
+                if (context.mounted) setDialogState(() => suggestions = found);
+              } finally {
+                if (context.mounted) setDialogState(() => searchingLocations = false);
+              }
+            },
+          ),
+          if (searchingLocations) const LinearProgressIndicator(),
+          if (suggestions.isNotEmpty) SizedBox(height: 180, child: ListView.builder(itemCount: suggestions.length, itemBuilder: (_, index) {
+            final item = suggestions[index];
+            return ListTile(dense: true, leading: const Icon(Icons.location_on_outlined), title: Text('${item['name'] ?? ''}'), subtitle: Text('${item['barcode'] ?? 'Sans code-barres'}'), onTap: () => Navigator.pop(context, 'id:${item['id']}'));
+          })),
+        ])),
+        actions: <Widget>[
+          OutlinedButton.icon(
+            onPressed: () => Navigator.pop(context, '__scan__'),
+            icon: const Icon(Icons.qr_code_scanner),
+            label: const Text('Scanner'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, locationInput.text),
+            child: const Text('Rechercher'),
+          ),
+        ],
+      )),
+    );
+    if (!mounted) {
+      locationInput.dispose();
+      return;
+    }
+    final navigator = Navigator.of(context);
+    final barcode = choice == '__scan__'
+        ? await navigator.push<String>(MaterialPageRoute<String>(builder: (_) => const CameraScannerPage(
+            title: 'Scanner l’emplacement d’origine',
+            instruction: 'Scannez le QR code de l’emplacement source',
+          )))
+        : choice;
+    locationInput.dispose();
+    if (!mounted || barcode == null || barcode.trim().isEmpty) return;
+    final selected = barcode.trim();
+    final locationId = selected.startsWith('id:')
+        ? int.tryParse(selected.substring(3))
+        : await widget.client.findLocationByBarcode(widget.url, selected);
+    if (!mounted) return;
+    if (locationId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Emplacement d’origine introuvable')));
+      return;
+    }
+    final input = TextEditingController();
+    final origin = await showDialog<String>(context: context, builder: (context) => AlertDialog(
+      title: const Text('Créer un transfert'),
+      content: TextField(controller: input, autofocus: true, decoration: const InputDecoration(labelText: 'Référence ou origine (facultatif)')),
+      actions: <Widget>[TextButton(onPressed: () => Navigator.pop(context), child: const Text('Annuler')), FilledButton(onPressed: () => Navigator.pop(context, input.text), child: const Text('Créer'))],
+    ));
+    input.dispose();
+    if (!mounted || origin == null) return;
+    try {
+      final transferId = await widget.client.createTransfer(url: widget.url, pickingTypeId: widget.type.id, locationId: locationId, origin: origin);
+      await _controller.load();
+      if (!mounted) return;
+      final created = _controller.operations.where((item) => item.id == transferId).firstOrNull;
+      if (created != null) {
+        await Navigator.of(context).push<bool>(MaterialPageRoute<bool>(builder: (_) => OperationDetailPage(client: widget.client, url: widget.url, operation: created)));
+        if (mounted) await _controller.load();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Transfert créé')));
+      }
+    } catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString().replaceFirst('Exception: ', ''))));
+    }
+  }
+
   @override
   void dispose() {
     _searchDebounce?.cancel();
+    _searchController.dispose();
     _controller.removeListener(_refresh);
     _controller.dispose();
     super.dispose();
@@ -56,13 +174,14 @@ class _OperationsPageState extends State<OperationsPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.type.name),
+        title: Text(widget.draftOnly ? '${widget.type.name} - Brouillons' : widget.type.name),
         actions: <Widget>[
           IconButton(
             tooltip: 'Actualiser',
             onPressed: _controller.load,
             icon: const Icon(Icons.refresh),
           ),
+          IconButton(tooltip: 'Créer un transfert', onPressed: _createTransfer, icon: const Icon(Icons.add_box_outlined)),
         ],
       ),
       body: Column(
@@ -70,7 +189,15 @@ class _OperationsPageState extends State<OperationsPage> {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
             child: SearchBar(
-              hintText: 'Référence, fournisseur ou document d’origine (PO…)',
+              controller: _searchController,
+              trailing: <Widget>[
+                IconButton(
+                  tooltip: 'Scanner le QR code du transfert',
+                  onPressed: _scanTransferQrCode,
+                  icon: const Icon(Icons.qr_code_scanner),
+                ),
+              ],
+              hintText: 'Type d’opération, transfert ou fournisseur',
               leading: const Icon(Icons.search),
               onChanged: (value) {
                 _searchDebounce?.cancel();
@@ -197,7 +324,9 @@ class _OperationsPageState extends State<OperationsPage> {
 
     final operations = _controller.operations
         .where((operation) {
-          final stateMatches = operation.state == 'confirmed'
+          final stateMatches = widget.draftOnly
+              ? operation.state == 'draft'
+              : operation.state == 'confirmed'
               ? _stateFilter.contains('waiting')
               : _stateFilter.contains(operation.state);
           if (!stateMatches) return false;

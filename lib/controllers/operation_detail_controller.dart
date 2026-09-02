@@ -4,10 +4,11 @@ import '../models/package_option.dart';
 import '../services/odoo_client.dart';
 
 class OperationDetailController extends ChangeNotifier {
-  OperationDetailController(this.client, this.url, this.operationId);
+  OperationDetailController(this.client, this.url, this.operationId, {this.isDraft = false});
   final OdooClient client;
   final String url;
   final int operationId;
+  final bool isDraft;
 
   List<OperationLine> lines = <OperationLine>[];
   bool loading = false;
@@ -84,6 +85,22 @@ class OperationDetailController extends ChangeNotifier {
     }
   }
 
+  Future<void> setDemand(int lineId, double quantity) async {
+    final index = lines.indexWhere((line) => line.id == lineId);
+    if (index < 0) return;
+    final line = lines[index];
+    saving = true; notifyListeners();
+    try {
+      final demand = quantity.clamp(0, 999999).toDouble();
+      if (demand == 0 && isDraft) {
+        await client.deleteDraftMove(url, line.moveId);
+      } else {
+        await client.setMoveDemand(url, line.moveId, demand);
+      }
+      await load();
+    } finally { saving = false; notifyListeners(); }
+  }
+
   Future<OperationLine?> scan(String barcode) async {
     final normalizedBarcode = barcode.trim();
     final productId = _scanCodeToProductId[normalizedBarcode.toLowerCase()] ??
@@ -97,6 +114,27 @@ class OperationDetailController extends ChangeNotifier {
           item!.doneQuantity < item.expectedQuantity,
       orElse: () => null,
     );
+    if (isDraft) {
+      OperationLine? draftLine;
+      for (final item in lines) {
+        if (item.productId == productId) draftLine = item;
+      }
+      if (draftLine != null) {
+        await client.incrementMoveDemand(url, draftLine.moveId, draftLine.expectedQuantity);
+        await load();
+        return draftLine;
+      }
+    }
+    if (line == null && isDraft) {
+      await client.addProductToDraftTransfer(url: url, pickingId: operationId, productId: productId, quantity: 1);
+      await load();
+      // La nouvelle ligne peut être créée par Odoo sans ligne de détail
+      // immédiatement disponible. Le rechargement suffit dans ce cas.
+      for (final addedLine in lines) {
+        if (addedLine.productId == productId) return addedLine;
+      }
+      return null;
+    }
     if (line == null) {
       final kit = await client.getKitComponents(url, productId);
       if (kit.isEmpty) {
@@ -196,7 +234,29 @@ class OperationDetailController extends ChangeNotifier {
     saving = true;
     notifyListeners();
     try {
+      if (isDraft) {
+        for (final line in lines) {
+          await client.setMoveQuantity(
+            url,
+            line.moveId,
+            line.moveLineIds,
+            line.expectedQuantity,
+          );
+        }
+      }
       return await client.validateOperation(url, operationId);
+    } finally {
+      saving = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> markTransferToDo() async {
+    saving = true;
+    notifyListeners();
+    try {
+      await client.markTransferToDo(url, operationId);
+      await load();
     } finally {
       saving = false;
       notifyListeners();
